@@ -282,8 +282,15 @@ def get_last_werk() -> int:
 
 def load_config() -> None:
     global g_last_werk
-    with open("config") as f_config:
-        exec(f_config.read(), globals(), globals())
+    try:
+        with open("config") as f_config:
+            exec(f_config.read(), globals(), globals())
+    except FileNotFoundError as e:
+        raise RuntimeError(
+            "Unable find config file '.werks/config'. See an example config "
+            "file in checkmk_dev_tools - docs/examples/werk_config - to know how "
+            "it must be structured."
+        ) from e
     try:
         with open(".last") as f_last:
             g_last_werk = int(f_last.read())

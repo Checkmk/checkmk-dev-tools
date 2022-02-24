@@ -1,0 +1,72 @@
+# The werk script expects a config file named 'config' in the '.werks'
+# directory of the repository in which it is run.
+
+current_version = "1.0.0"
+
+editions = [
+    ( "cre",          "Raw Edition" ),
+    ( "cee",          "Enterprise Edition" ),
+    ( "cme",          "Managed Services Edition" ),
+    ( "cpe",          "Plus Edition" ),
+]
+
+components = [
+   ( "core",          "Core & setup" ),
+   ( "checks",        "Checks & agents" ),
+   ( "multisite",     "Multisite" ),
+   ( "wato",          "Setup" ),
+   ( "notifications", "Notifications" ),
+   ( "bi",            "BI" ),
+   ( "reporting",     "Reporting & Availability" ),
+   ( "ec",            "Event Console" ),
+   ( "livestatus",    "Livestatus" ),
+   ( "liveproxy",     "Livestatus Proxy" ),
+   ( "inv",           "HW/SW Inventory" ),
+   ( "dcd",           "Dynamic host configuration" ),
+
+   ( "omd",           "Site Management" ),
+   ( "rpm",           "RPM Packaging" ),
+   ( "deb",           "DEB Packaging" ),
+   ( "nagvis",        "NagVis" ),
+   ( "packages",      "Other Components" ),
+   ( "distros",       "Linux Distributions" ),
+   ( "rest-api",      "REST API"),
+]
+
+edition_components = {
+    "cee": [
+        ( "cmc",           "The Check_MK Micro Core" ),
+        ( "setup",         "Setup, site management" ),
+        ( "config",        "Configuration generation" ),
+        ( "inline-snmp",   "Inline SNMP" ),
+        ( "agents",        "Agent bakery" ),
+        ( "metrics",       "Metrics system" ),
+        ( "alerts",        "Alert handlers" ),
+        ( "ntopng_integration", "Ntopng integration" ),
+    ],
+}
+
+classes = [
+  ( "feature",      "New feature",          "" ),
+  ( "fix",          "Bug fix",              "FIX" ),
+  ( "security",     "Security fix",         "SEC" ),
+]
+
+levels = [
+  ( '1',              "Trivial change" ),
+  ( '2',              "Prominent change" ),
+  ( '3',              "Major change" ),
+]
+
+compatible = [
+    ("compat", "Compatible"),
+    ("incomp", "Incompatible"),
+]
+
+knowledge = [
+    ( "undoc", "User manual state unknown" ),
+    ( "todoc", "Needs to be added to user manual" ),
+    ( "doc",   "Is reflected in user manual or does not need to" ),
+]
+
+online_url = "https://checkmk.com/werk/%d"
