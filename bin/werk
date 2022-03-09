@@ -769,8 +769,9 @@ def main_new(args: argparse.Namespace) -> None:
         sys.stderr.write("Cancelled.\n")
         sys.exit(0)
     werk["class"] = input_choice("Class", classes)
-    werk["edition"] = input_choice("Edition", editions)
-    werk["component"] = input_choice("Component", get_edition_components(werk["edition"]))
+    if editions:
+        werk["edition"] = input_choice("Edition", editions)
+    werk["component"] = input_choice("Component", get_edition_components(werk.get("edition", "")))
     werk["level"] = input_choice("Level", levels)
     werk["compatible"] = input_choice("Compatible", compatible)
     if werk["class"] == "feature":
