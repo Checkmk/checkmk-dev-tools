@@ -12,9 +12,11 @@ packages = [
 [tool.poetry.scripts]
 cmk-dev = 'cmk_dev.cli:main'
 active-listen = 'cmk_dev.listen_std:main'
+ci-artifacts = 'cmk_dev.ci_artifacts:main'
 
 [tool.poetry.dependencies]
 python = "^3.8"
+python-jenkins = "^1.8.0"
 
 [tool.poetry.dev-dependencies]
 yamllint = "^1.29.0"
