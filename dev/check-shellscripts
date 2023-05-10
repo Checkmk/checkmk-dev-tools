@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+
+# This script is just here to run shellcheck in a standard single-point-of-truth
+# way. Feel free to run it manually instead.
+
+set -e
+
+# run from root of current project
+cd "$(dirname "$(dirname "$(realpath "$0")")")" || exit 1
+
+if [ -z "$*" ]; then
+find "." \
+    -not -path "*/.git/*" \
+    -not -path "*/.venv/*" \
+    -not -path "*/.mypy_cache/*" \
+    -type f \
+    \( \
+        -perm -u=x \
+        -o -perm -g=x \
+        -o -perm -o=x \
+    \) \
+    -exec grep -E "^#\!.*env sh|^#\!.*env bash|^#\!.*/bash|^#\!.*/sh" {} /dev/null \; \
+    | cut -d":" -f1 \
+    | xargs -P1 -n1 \
+        shellcheck
+else
+    shellcheck "$@"
+fi

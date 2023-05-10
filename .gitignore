@@ -1,0 +1,10 @@
+/.container_home_dir
+/untracked
+/dist
+.~*
+*~
+__pycache__
+.mypy_cache
+/.venv
+idea
+*.wpu

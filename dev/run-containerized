@@ -1,0 +1,54 @@
+#!/usr/bin/env sh
+
+# Run a given command in a Docker container context. Makes sure cached stuff
+# and build artifacts are being kept but kept in a separate folder.
+
+set -e
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+: "${PROJECT_NAME:="$(basename "$(realpath "${REPO_ROOT}")")"}"
+: "${CONTAINER_USERNAME:="${USER}"}"
+: "${CONTAINER_HOMEDIR:="/home/${CONTAINER_USERNAME}"}"
+: "${WORKDIR:="$(pwd)"}"
+: "${LOCAL_HOMEDIR:="${REPO_ROOT}/.container_home_dir"}"
+: "${IMAGE_NAME:="${PROJECT_NAME}-image"}"
+
+echo "Build image ${IMAGE_NAME}.."
+"${REPO_ROOT}/dev/quietverbose" 2 docker build \
+    --tag "${IMAGE_NAME}" \
+    --build-arg USERNAME="${CONTAINER_USERNAME}" \
+    --build-arg USERID="$(id -u)" \
+    --build-arg GROUPID="$(id -g)" \
+    "${REPO_ROOT}/dev"
+
+mkdir -p "${LOCAL_HOMEDIR}"
+mkdir -p "${LOCAL_HOMEDIR}/.cache"
+mkdir -p "${LOCAL_HOMEDIR}/.local"
+mkdir -p "${LOCAL_HOMEDIR}/.venv"
+touch "${LOCAL_HOMEDIR}/.bash_history"
+
+echo "To enter this container as root: docker exec -it --user 0:0 ${PROJECT_NAME} /bin/bash"
+
+if [ -t 0 ] ; then
+    TERMINAL_FLAG="--interactive"
+fi
+
+# todo: map .pyenv download cache dir in case another version of python gets installed
+
+docker run -t --rm \
+    $TERMINAL_FLAG \
+    --name "${PROJECT_NAME}" \
+    --net=host \
+    --mount "type=bind,source=""${LOCAL_HOMEDIR}""/.bash_history,target=""${CONTAINER_HOMEDIR}""/.bash_history" \
+    --mount "type=bind,source=""${HOME}""/.config/jenkins_jobs/jenkins_jobs.ini,target=""${CONTAINER_HOMEDIR}""/.config/jenkins_jobs/jenkins_jobs.ini" \
+    --volume "${LOCAL_HOMEDIR}"/.cache:"${CONTAINER_HOMEDIR}"/.cache/:rw \
+    --volume "${LOCAL_HOMEDIR}"/.local:"${CONTAINER_HOMEDIR}"/.local/:rw \
+    --volume "${REPO_ROOT}":"${REPO_ROOT}":rw \
+    --volume "${LOCAL_HOMEDIR}"/.venv:"${REPO_ROOT}"/.venv/:rw \
+    --volume "${REPO_ROOT}/.container_home_dir/" \
+    --workdir "$(pwd)" \
+    --user "$USER" \
+    "${IMAGE_NAME}" \
+    "$@"
+

@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+
+# This script is just here to run pylint checkers in a standard
+# single-point-of-truth way. Feel free to run it manually instead.
+
+# run from root of current project
+cd "$(dirname "$(dirname "$(realpath "$0")")")" || exit 1
+
+"dev/run-in-venv" run python -m pytest --doctest-modules "$@"
+
+if [[ $? == @("0"|"5") ]]; then
+    exit 0
+else
+    exit 1
+fi

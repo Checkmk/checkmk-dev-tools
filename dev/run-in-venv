@@ -1,0 +1,12 @@
+#!/usr/bin/env sh
+
+# This script is just here to run pipenv in a standard single-point-of-truth
+# way. Feel free to run it manually instead.
+set -e
+
+if type pyenv >/dev/null 2>&1; then
+    eval "$(pyenv init -)"
+    # eval "$(pyenv virtualenv-init -)"
+fi
+
+poetry "$@"

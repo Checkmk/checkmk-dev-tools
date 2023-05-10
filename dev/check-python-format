@@ -1,0 +1,14 @@
+#!/usr/bin/env bash
+
+# This script is just here to run format checkers in a standard
+# single-point-of-truth way. Feel free to run it manually instead.
+
+set -e
+
+ARGS=( "${@:-.}" )
+
+# run from root of current project
+cd "$(dirname "$(dirname "$(realpath "$0")")")" || exit 1
+
+"dev/run-in-venv" run python -m isort --check "${ARGS[@]}"
+"dev/run-in-venv" run python -m black --check "${ARGS[@]}"

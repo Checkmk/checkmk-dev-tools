@@ -1,0 +1,83 @@
+[tool.poetry]
+name = "checkmk_dev_tools"
+version = "0.1.0"
+description = "Checkmk DevOps tools"
+authors = ["Frans Fürst <frans.fuerst@checkmk.com>"]
+repository = "ssh://review.lan.tribe29.com:29418/checkmk_dev_tools"
+readme = "README.rst"
+packages = [
+  {include = "cmk_dev"}
+]
+
+[tool.poetry.scripts]
+cmk-dev = 'cmk_dev.cli:main'
+
+[tool.poetry.dependencies]
+python = "^3.8"
+
+[tool.poetry.dev-dependencies]
+yamllint = "^1.29.0"
+black = "^22.6.0"
+isort = "^5.10.1"
+flake8 = "^4.0.1"
+pytest = "^7.1.2"
+pytest-cov = "^3.0.0"
+mypy = "^1.2"
+pylint = "^2.15.3"
+ipython = "^8.8.0"
+types-pyyaml = "^6.0.12.6"
+
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+
+[tool.black]
+line-length = 100
+target-version = ['py311']
+include = '\.pyi?$'
+fast = true
+exclude = '''
+(
+  /(                        # exclude a few common directories in the
+    \.git                   # root of the project
+    | \.pytest_cache
+    | untracked
+    | \.venv
+    | \.container_home_dir
+    | dist
+  ))
+'''
+
+[tool.isort]
+profile = "black"
+
+[tool.mypy]
+python_version = "3.11"
+strict="True"
+disallow_untyped_defs = "True"
+disallow_any_unimported = "True"
+no_implicit_optional = "True"
+check_untyped_defs = "True"
+warn_return_any = "True"
+warn_unused_ignores = "True"
+show_error_codes = "True"
+exclude = [
+    '\.venv',
+    '\.container_home_dir',
+]
+
+[tool.pylint]
+ignore = [".venv", "untracked"]
+
+# Files or directories matching the regular expression patterns are skipped. The
+# regex matches against base names, not paths. The default value ignores Emacs
+# file locks
+ignore-patterns = ["^\\.#"]
+
+# Use multiple processes to speed up Pylint. Specifying 0 will auto-detect the
+# number of processors available to use, and will cap the count on Windows to
+# avoid hangs.
+jobs = 1
+
