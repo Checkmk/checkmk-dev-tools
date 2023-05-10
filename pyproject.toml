@@ -11,6 +11,7 @@ packages = [
 
 [tool.poetry.scripts]
 cmk-dev = 'cmk_dev.cli:main'
+active-listen = 'cmk_dev.listen_std:main'
 
 [tool.poetry.dependencies]
 python = "^3.8"
