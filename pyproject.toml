@@ -17,6 +17,7 @@ ci-artifacts = 'cmk_dev.ci_artifacts:main'
 [tool.poetry.dependencies]
 python = "^3.8"
 python-jenkins = "^1.8.0"
+pyyaml = "^6.0"
 
 [tool.poetry.dev-dependencies]
 yamllint = "^1.29.0"
@@ -83,4 +84,3 @@ ignore-patterns = ["^\\.#"]
 # number of processors available to use, and will cap the count on Windows to
 # avoid hangs.
 jobs = 1
-
