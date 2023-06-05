@@ -1,13 +1,14 @@
 [tool.poetry]
-name = "checkmk_dev_tools"
-version = "0.1.0"
+name = "checkmk-dev-tools"
+version = "0.1.14"
 description = "Checkmk DevOps tools"
 authors = ["Frans Fürst <frans.fuerst@checkmk.com>"]
-repository = "ssh://review.lan.tribe29.com:29418/checkmk_dev_tools"
-readme = "README.rst"
+repository = "https://github.com/tribe29/checkmk"
+readme = "Readme.md"
 packages = [
-  {include = "cmk_dev"}
+  {include = "cmk_dev/**/*.py"}
 ]
+exclude = ["cmk_dev/out"]
 
 [tool.poetry.scripts]
 cmk-dev = 'cmk_dev.cli:main'
@@ -15,12 +16,11 @@ active-listen = 'cmk_dev.listen_std:main'
 ci-artifacts = 'cmk_dev.ci_artifacts:main'
 
 [tool.poetry.dependencies]
-python = "^3.8"
+python = "^3.9"
 python-jenkins = "^1.8.0"
 pyyaml = "^6.0"
 
-[tool.poetry.dev-dependencies]
-yamllint = "^1.29.0"
+[tool.poetry.group.dev.dependencies]
 black = "^22.6.0"
 isort = "^5.10.1"
 flake8 = "^4.0.1"
@@ -30,7 +30,10 @@ mypy = "^1.2"
 pylint = "^2.15.3"
 ipython = "^8.8.0"
 types-pyyaml = "^6.0.12.6"
-
+twine = "^4.0.2"
+yamllint = "^1.29.0"
+pylint-per-file-ignores = "^1.2.1"
+types-requests = "^2.31.0.1"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
@@ -74,14 +77,20 @@ exclude = [
 mypy_path="typeshed"
 
 [tool.pylint]
-ignore = [".venv", "untracked"]
+#ignore = [".venv", "untracked"]
 
 # Files or directories matching the regular expression patterns are skipped. The
 # regex matches against base names, not paths. The default value ignores Emacs
 # file locks
-ignore-patterns = ["^\\.#"]
+#ignore-patterns = ["^\\.#"]
 
 # Use multiple processes to speed up Pylint. Specifying 0 will auto-detect the
 # number of processors available to use, and will cap the count on Windows to
 # avoid hangs.
-jobs = 1
+jobs = 0
+
+[tool.pylint.MASTER]
+load-plugins=["pylint_per_file_ignores"]
+
+[tool.pylint-per-file-ignores]
+"pocketrockit/examples/" = "invalid-name"

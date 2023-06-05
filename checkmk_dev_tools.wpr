@@ -1,0 +1,17 @@
+#!wing
+#!version=9.0
+##################################################################
+# Wing project file                                              #
+##################################################################
+[project attributes]
+proj.directory-list = [{'dirloc': loc('.'),
+                        'excludes': ['dist',
+                                     '.venv'],
+                        'filter': '*',
+                        'include_hidden': False,
+                        'recursive': True,
+                        'watch_for_changes': True}]
+proj.file-type = 'shared'
+proj.launch-config = {loc('cmk_dev/ci_artifacts.py'): ('project',
+        ('-l debug fetch Testing/jjb/checkmk/master/builders/build-linux-agent-updater  --base-dir=~/_TRIBE29/git-check_mk/master-package --out-dir=package_download  --params-no-check=CUSTOM_GIT_REF=0dce883e5bb729f5faf256a982cd22b4d2c1954e --omit-new-build',
+         ''))}
