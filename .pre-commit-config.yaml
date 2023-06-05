@@ -31,11 +31,11 @@ repos:
             language: script
             types: [file, python]
             verbose: true
-            #          - id: check-python-typing
-            #            name: Check Python Type Hinting
-            #            entry: dev/check-python-typing
-            #            language: script
-            #            types: [file, python]
+          - id: check-python-typing
+            name: Check Python Type Hinting
+            entry: dev/check-python-typing
+            language: script
+            types: [file, python]
             #          - id: absolute-imports
             #            name: Check absolute imports
             #            entry: scripts/check-absolute-imports.py

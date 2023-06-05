@@ -71,6 +71,7 @@ exclude = [
     '\.venv',
     '\.container_home_dir',
 ]
+mypy_path="typeshed"
 
 [tool.pylint]
 ignore = [".venv", "untracked"]
