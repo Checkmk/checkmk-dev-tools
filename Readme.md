@@ -1,14 +1,6 @@
 # Checkmk Dev Tools
 
-This repository includes helper scripts for Checkmk developers. After checking
-out this repository, add it to your PATH in order to use the scripts that are
-available.
-
-Be sure to 'git pull' regularly in order to use the most up-to-date version of
-the tools.
-
-If you want to add new tools: be sure they work across different repositories.
-
+This repository includes scripts/tools for Checkmk developers.
 
 ## Installation
 
@@ -16,9 +8,20 @@ If you want to add new tools: be sure they work across different repositories.
 [<PYTHON> -m] pip[3] install [--upgrade] checkmk-dev-tools
 ```
 
+## `ci-rtifacts`
+
+`ci-rtifacts` is a tool which makes artifacts of CI jobs (currently only Jenkins) locally available
+based on certain constraints like job parameters and time constraints.
+
+
 ## Usage
 
-TBD
+Run `ci-artifacts --help` in general. Here come a few more detailed examples, which might be outdated
+
+Fetch the last successful artifacts of a given job `checkmk/master/winagt-build`
+```
+ci-artifacts fetch checkmk/master/winagt-build
+```
 
 ## Development & Contribution
 
