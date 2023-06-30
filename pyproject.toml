@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "checkmk-dev-tools"
-version = "0.1.15"
+version = "0.1.16"
 description = "Checkmk DevOps tools"
 authors = ["Frans Fürst <frans.fuerst@checkmk.com>"]
 repository = "https://github.com/Checkmk/checkmk-dev-tools"
@@ -16,7 +16,7 @@ active-listen = 'cmk_dev.listen_std:main'
 ci-artifacts = 'cmk_dev.ci_artifacts:main'
 
 [tool.poetry.dependencies]
-python = "^3.9"
+python = ">=3.8.10"
 python-jenkins = "^1.8.0"
 pyyaml = "^6.0"
 
@@ -28,12 +28,13 @@ pytest = "^7.1.2"
 pytest-cov = "^3.0.0"
 mypy = "^1.2"
 pylint = "^2.15.3"
-ipython = "^8.8.0"
 types-pyyaml = "^6.0.12.6"
 twine = "^4.0.2"
 yamllint = "^1.29.0"
-pylint-per-file-ignores = "^1.2.1"
 types-requests = "^2.31.0.1"
+
+# not available for Python <3.9
+# pylint-per-file-ignores = "^1.2.1"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
@@ -89,8 +90,9 @@ mypy_path="typeshed"
 # avoid hangs.
 jobs = 0
 
-[tool.pylint.MASTER]
-load-plugins=["pylint_per_file_ignores"]
+# see above: not available for Python <3.9
+#[tool.pylint.MASTER]
+#load-plugins=["pylint_per_file_ignores"]
 
-[tool.pylint-per-file-ignores]
-"pocketrockit/examples/" = "invalid-name"
+#[tool.pylint-per-file-ignores]
+#"pocketrockit/examples/" = "invalid-name"
