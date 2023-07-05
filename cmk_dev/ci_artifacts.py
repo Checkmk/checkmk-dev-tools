@@ -371,11 +371,13 @@ def params_from(build_info: GenMap, action_name: str, item_name: str) -> GenMap:
     return {}
 
 
-def download_artifacts(client: Jenkins, build: Build, out_dir: Path) -> tuple[int, int]:
+def download_artifacts(
+    client: Jenkins, build: Build, out_dir: Path
+) -> tuple[Sequence[str], Sequence[str]]:
     """Downloads all artifacts listed for given job/build to @out_dir"""
     # pylint: disable=protected-access
 
-    downloaded, skipped = 0, 0
+    downloaded_artifacts, skipped_artifacts = [], []
 
     # https://bugs.launchpad.net/python-jenkins/+bug/1973243
     # https://bugs.launchpad.net/python-jenkins/+bug/2018576
@@ -399,7 +401,7 @@ def download_artifacts(client: Jenkins, build: Build, out_dir: Path) -> tuple[in
 
         if local_hash == fp_hash:
             logger().debug("file is already available locally: %s (md5: %s)", artifact, fp_hash)
-            skipped += 1
+            skipped_artifacts.append(artifact_filename)
             continue
 
         if local_hash and local_hash != fp_hash:
@@ -417,9 +419,9 @@ def download_artifacts(client: Jenkins, build: Build, out_dir: Path) -> tuple[in
             with open(artifact_filename, "wb") as out_file:
                 for chunk in reply.iter_content(chunk_size=1 << 16):
                     out_file.write(chunk)
-            downloaded += 1
+            downloaded_artifacts.append(artifact_filename)
 
-    return downloaded, skipped
+    return downloaded_artifacts, skipped_artifacts
 
 
 def path_hashes_match(actual: PathHashes, required: PathHashes) -> bool:
@@ -634,7 +636,7 @@ def fetch_job_artifacts(
     out_dir: None | Path = None,
     omit_new_build: bool = False,
     force_new_build: bool = False,
-) -> None:
+) -> Sequence[str]:
     """Returns artifacts of Jenkins job specified by @job_full_path matching @params and
     @time_constraints. If none of the existing builds match the conditions a new build will be
     issued. If the existing build has not finished yet it will be waited for."""
@@ -761,13 +763,17 @@ def fetch_job_artifacts(
             raise Fatal("Job has no artifacts!")
 
         full_out_dir = used_base_dir / (out_dir or "")
-        downloaded, skipped = download_artifacts(client, build_candidate, full_out_dir)
+        downloaded_artifacts, skipped_artifacts = download_artifacts(
+            client, build_candidate, full_out_dir
+        )
         logger().info(
             "%d artifacts available in %s (%d skipped, because it existed already)",
-            downloaded + skipped,
+            len(downloaded_artifacts) + len(skipped_artifacts),
             full_out_dir,
-            skipped,
+            len(skipped_artifacts),
         )
+
+        return downloaded_artifacts + skipped_artifacts
 
 
 def main() -> None:
