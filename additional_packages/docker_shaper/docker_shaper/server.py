@@ -83,19 +83,39 @@ async def schedule_watch_images(global_state):
         await docker.close()
 
 
-async def schedule_cleanup(global_state):
+async def schedule_watch_volumes(global_state):
+    # TODO: also use events to register
     try:
         docker = Docker()
         while True:
             try:
-                for second in count():
+                await asyncio.ensure_future(dynamic.watch_volumes(docker, global_state))
+                await asyncio.sleep(global_state.intervals.get("volumes_update", 1))
+            except Exception as exc:
+                log().exception("Unhandled exception in volumes_update()!")
+                dynamic.report(global_state, "error", f"exception in volumes_update(): {exc}", exc)
+                await asyncio.sleep(5)
+    finally:
+        await docker.close()
+
+
+async def schedule_cleanup(global_state: dynamic.GlobalState):
+    try:
+        docker = Docker()
+        while True:
+            try:
+                while True:
                     if (
                         interval := global_state.intervals.get("cleanup", 3600)
-                    ) and second > interval:
+                    ) and global_state.cleanup_fuse > interval:
+                        global_state.cleanup_fuse = 0
                         break
-                    if (interval - second) % 10 == 0:
-                        log().debug("cleanup: %s seconds to go.." % (interval - second))
+                    if (interval - global_state.cleanup_fuse) % 10 == 0:
+                        log().debug(
+                            "cleanup: %s seconds to go.." % (interval - global_state.cleanup_fuse)
+                        )
                     await asyncio.sleep(1)
+                    global_state.cleanup_fuse += 1
                 await asyncio.ensure_future(dynamic.cleanup(docker, global_state))
             except Exception as exc:
                 log().exception("Unhandled exception caught in cleanup()!")
@@ -167,6 +187,7 @@ def no_serve():
         asyncio.ensure_future(schedule_print_state(global_state))
         asyncio.ensure_future(schedule_watch_containers(global_state))
         asyncio.ensure_future(schedule_watch_images(global_state))
+        asyncio.ensure_future(schedule_watch_volumes(global_state))
         asyncio.ensure_future(handle_docker_events(global_state))
         asyncio.ensure_future(schedule_cleanup(global_state))
         asyncio.get_event_loop().run_forever()
@@ -199,11 +220,19 @@ def serve():
         app.terminator.set()
         return "Server shutting down..."
 
-    @app.route("/<generic>")
+    @app.route("/<generic>", methods=["GET", "POST"])
     async def route_generic(generic) -> Response:
         if generic == "favicon.ico":
             return ""
         return await generic_response(generic)
+
+    @app.route("/cleanup", methods=["POST"])
+    async def route_cleanup():
+        return await generic_response("cleanup")
+
+    @app.route("/volumes")
+    async def route_volumes():
+        return await generic_response("volumes")
 
     @app.route("/rules")
     async def route_rules():
@@ -237,6 +266,7 @@ def serve():
         asyncio.ensure_future(schedule_print_state(global_state))
         asyncio.ensure_future(schedule_watch_containers(global_state))
         asyncio.ensure_future(schedule_watch_images(global_state))
+        asyncio.ensure_future(schedule_watch_volumes(global_state))
         asyncio.ensure_future(handle_docker_events(global_state))
         asyncio.ensure_future(schedule_cleanup(global_state))
 

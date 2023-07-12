@@ -11,11 +11,13 @@
   </head>
 
   <body>
+
      <table class="table table-striped"><tr>
       <td>Host: <b>{{meta.hostname}}</b></td>
       {% for link in meta.extra_links %}
           <td><a href="{{ meta.extra_links[link] }}">{{link}}</a></td>
       {% endfor %}
+      <td></td>
       <td></td>
       <td></td>
 
@@ -24,6 +26,10 @@
       <td>configuration at <tt><b>~/.docker_shaper/config.py</b></tt></td>
       <td>rotate log level: <tt>`<b>kill -USR1 {{meta.self_pid}}</b>`</tt></td>
       <td>backtrace: <tt>`<b>kill -USR2 {{meta.self_pid}}</b>`</tt></td>
+      <td></td>
+      <td></td>
+      <td></td>
+      <td></td>
 
      </tr><tr>
 
@@ -33,6 +39,16 @@
       <td><a href="/volumes">Volumes</a></td>
       <td><a href="/rules">Rules</a></td>
       <td><a href="/messages">Messages</a></td>
+      <td>
+        <form method="post" action="cleanup" class="inline">
+          <!--
+          <input type="hidden" name="extra_submit_param" value="extra_submit_value">
+          -->
+          <button name="submit_param" value="submit_value">
+            Cleanup (auto in {{meta.next_cleanup}})
+          </button>
+        </form>
+      </td>
 
      </tr></table>
 
@@ -40,7 +56,7 @@
       <td>intervals:</td>
 
       {% for interval in meta.intervals %}
-          <td>{{interval}} = <b>{{meta.intervals[interval]}}s</b>  </td><td></td>
+          <td>{{interval}} = <b>{{meta.intervals[interval]}}</b>  </td><td></td>
       {% endfor %}
 
     </tr></table>

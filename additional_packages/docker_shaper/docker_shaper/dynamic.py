@@ -3,6 +3,7 @@
 """Functionality that might change during runtime
 """
 import asyncio
+import glob
 import logging
 import os
 import re
@@ -21,7 +22,7 @@ from typing import MutableMapping, MutableSequence, Optional, Tuple, Union
 from aiodocker import Docker, DockerError
 from dateutil import tz
 from flask_table import Col, Table
-from quart import render_template, request, url_for
+from quart import redirect, render_template, request, url_for
 
 from docker_shaper.utils import impatient, process_output
 
@@ -37,6 +38,7 @@ class GlobalState:
     image_ids: MutableMapping[str, object]
     images: MutableMapping[str, object]
     containers: MutableMapping[str, object]
+    volumes: MutableMapping[str, object]
     event_horizon: int
     last_referenced: MutableMapping[str, MutableSequence[int]]
     tag_rules: MutableMapping[str, int]
@@ -55,9 +57,23 @@ class GlobalState:
             "container_stats": 2,
             "cleanup": 3600,
         }
+        self.cleanup_fuse = 0
         self.image_ids = {}
         self.images = {}
         self.containers = {}
+        self.volumes = {}
+        # self.volumes = {
+        # "0f32fa9536f3d80cf4c80ce3a7b856834939c9b56504ef75486f0971837afc14": {
+        # "CreatedAt": "2023-07-10T03:28:48+02:00",
+        # "Driver": "local",
+        # "Labels": None,
+        # "Mountpoint": "/var/lib/docker/volumes/0f32fa9536f3d80cf4c80ce3a7b856834939c9b56504ef75486f0971837afc14/_data",
+        # "Name": "0f32fa9536f3d80cf4c80ce3a7b856834939c9b56504ef75486f0971837afc14",
+        # "Options": None,
+        # "Scope": "local",
+        # },
+        # }
+
         self.event_horizon = int(time.time())
         self.last_referenced = {}
         self.tag_rules = {}
@@ -80,15 +96,25 @@ def short_id(docker_id: str) -> str:
     return docker_id[7:17] if docker_id.startswith("sha256:") else docker_id[:10]
 
 
+def dur_str(seconds: int, fixed=False) -> str:
+    days = f"{seconds//86400:02d}d" if fixed or seconds >= 86400 else ""
+    hours = f"{seconds//3600%24:02d}h" if fixed or seconds >= 3600 else ""
+    minutes = f"{seconds//60%60:02d}m" if fixed or seconds >= 60 else ""
+    seconds_str = f"{seconds%60:02d}s" if not fixed else ""
+    return ":".join(e for e in (days, hours, minutes, seconds_str) if e)
+
+
 def age_str(now: Union[int, datetime], age: Union[int, datetime, None]) -> str:
     """Turn a number of seconds into something human readable"""
     if age is None:
         return "--"
-    tds = int(
-        (now.timestamp() if isinstance(now, datetime) else now)
-        - (age.timestamp() if isinstance(age, datetime) else age)
+    return dur_str(
+        int(
+            (now.timestamp() if isinstance(now, datetime) else now)
+            - (age.timestamp() if isinstance(age, datetime) else age)
+        ),
+        fixed=True,
     )
-    return f"{tds//86400:02d}d" f":{tds//3600%24:02d}h" f":{tds//60%60:02d}m"
 
 
 def date_str(date: datetime) -> str:
@@ -110,6 +136,7 @@ def date_from(timestamp: Union[int, float, str]) -> datetime:
                 .replace(tzinfo=tz.tzutc())
                 .astimezone(tz.tzlocal())
             )
+        return datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S%z")
     except OverflowError:
         return None
     except Exception as exc:
@@ -298,6 +325,7 @@ def register_reference(ident: str, timestamp: int, global_state) -> None:
 
 
 def expiration_age_from_ident(ident: str, global_state: GlobalState) -> int:
+    # TODO: distinguish between container, image and volume
     if is_uid(ident):
         return global_state.expiration_ages["tag_default"]
 
@@ -534,19 +562,77 @@ class ContainerTable(BaseTable):
         ).__html__()
 
 
-def meta_info(global_state):
+class VolumeTable(BaseTable):
+    name = PlainCol("name")
+    labels = PlainCol("labels")
+    created_at = PlainCol("created_at")
+    age = PlainCol("age")
+    mountpoint = PlainCol("mountpoint")
+
+    def sort_url(self, col_key, reverse=False):
+        return url_for(
+            self.endpoint,
+            sort_key_volumes=col_key,
+            sort_direction_volumes="desc" if reverse else "asc",
+        )
+
+    @staticmethod
+    def html_from(endpoint, global_state, sort, reverse):
+        now = datetime.now(tz=tz.tzutc())
+
+        def dict_from(volume):
+            now_timestamp = now.timestamp()
+            created_timestamp = date_from(volume["CreatedAt"]).timestamp()
+
+            def coloured_ident(ident: str, formatter=lambda s: s) -> str:
+                is_expired, last_referenced, expiration_age = expired(
+                    ident, global_state, now_timestamp, created_timestamp
+                )
+                return (
+                    f"<div class='text-{'danger' if is_expired else 'success'}'>"
+                    f"{formatter(ident)} ({age_str(now, last_referenced)}/{age_str(expiration_age, 0)})</div>"
+                )
+
+            return {
+                "name": coloured_ident(volume["Name"], formatter=lambda s: s[:12]),
+                "labels": "".join(map(coloured_ident, volume["Labels"] or [])),
+                "created_at": date_str(date_from(volume["CreatedAt"])),
+                "age": age_str(now, date_from(volume["CreatedAt"])),
+                "mountpoint": volume["Mountpoint"],
+            }
+
+        return VolumeTable(
+            endpoint,
+            items=sorted(
+                map(dict_from, global_state.volumes.values()),
+                key=lambda e: e[sort],
+                reverse=reverse,
+            ),
+        ).__html__()
+
+
+def meta_info(global_state: GlobalState):
     return {
         "refresh_interval": global_state.intervals.get("site_refresh", 10),
         "event_horizon": age_str(time.time(), global_state.event_horizon),
         "container_count": len(global_state.containers),
         "image_count": len(global_state.images),
+        "volume_count": len(global_state.volumes),
         "extra_links": global_state.extra_links,
-        "intervals": global_state.intervals,
+        "intervals": {key: dur_str(value) for key, value in global_state.intervals.items()},
+        "next_cleanup": dur_str(global_state.intervals["cleanup"] - global_state.cleanup_fuse),
         "hostname": global_state.hostname,
         "switches": global_state.switches,
-        "expiration_ages": global_state.expiration_ages,
+        "expiration_ages": {
+            key: dur_str(value) for key, value in global_state.expiration_ages.items()
+        },
         "self_pid": os.getpid(),
     }
+
+
+async def response_cleanup(global_state: GlobalState):
+    global_state.cleanup_fuse = global_state.intervals["cleanup"]
+    return redirect(request.referrer or url_for("route_dashboard"))
 
 
 async def response_rules(global_state):
@@ -558,7 +644,16 @@ async def response_messages(global_state):
 
 
 async def response_volumes(global_state):
-    return "no volumes yet"
+    return await render_template(
+        "volumes.html",
+        meta=meta_info(global_state),
+        volumes_html=VolumeTable.html_from(
+            "route_volumes",
+            global_state,
+            sort=request.args.get("sort_key_volumes", "created_at"),
+            reverse=request.args.get("sort_direction_volumes", "desc") == "desc",
+        ),
+    )
 
 
 async def response_containers(global_state):
@@ -768,7 +863,7 @@ async def watch_images(docker_client, global_state):
             )
 
 
-async def watch_containers(docker_client, global_state):
+async def watch_containers(docker_client, global_state: GlobalState):
     # TODO: also use events to register
     log().info("crawl containers..")
     for container in await docker_client.containers.list(all=True):
@@ -779,7 +874,16 @@ async def watch_containers(docker_client, global_state):
             asyncio.ensure_future(watch_container(container, global_state))
 
 
-def would_cleanup_container(container, now: int, global_state):
+async def watch_volumes(docker_client, global_state: GlobalState):
+    # TODO: also use events to register
+    log().info("crawl volumes..")
+    for volume in (await docker_client.volumes.list())["Volumes"]:
+        log().debug("  found volume %s", volume)
+        if volume["Name"] not in global_state.volumes:
+            global_state.volumes[volume["Name"]] = volume
+
+
+def would_cleanup_container(container, now: int, global_state: GlobalState):
     if "show" not in container:
         return False
     status = (show := container["show"])["State"]["Status"]
@@ -814,6 +918,14 @@ def expired_idents(image, now, global_state: GlobalState):
 async def image_from(docker_client: Docker, ident: str) -> bool:
     with suppress(DockerError):
         return await docker_client.images.get(ident)
+    return None
+
+
+async def volume_from(docker_client: Docker, ident: str) -> bool:
+    with suppress(DockerError):
+        for volume in (await docker_client.volumes.list())["Volumes"]:
+            if volume["Name"].startswith(ident):
+                return volume
     return None
 
 
@@ -860,8 +972,13 @@ async def cleanup(docker_client: Docker, global_state):
         ]:
             log().warning("reference to image %s has not been cleaned up, I'll do it now..", ident)
             del global_state.images[ident]
+
+        for ident in [
+            ident for ident in global_state.volumes if not await volume_from(docker_client, ident)
+        ]:
+            log().warning("reference to volume %s has not been cleaned up, I'll do it now..", ident)
+            del global_state.volumes[ident]
     finally:
-        log().info("cleanup done!")
         report(global_state, "info", f"cleanup done", None)
 
 
