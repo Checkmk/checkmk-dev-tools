@@ -373,7 +373,7 @@ def params_from(build_info: GenMap, action_name: str, item_name: str) -> GenMap:
 
 def download_artifacts(
     client: Jenkins, build: Build, out_dir: Path
-) -> Tuple[Sequence[Path], Sequence[Path]]:
+) -> Tuple[Sequence[str], Sequence[str]]:
     """Downloads all artifacts listed for given job/build to @out_dir"""
     # pylint: disable=protected-access
 
@@ -401,7 +401,7 @@ def download_artifacts(
 
         if local_hash == fp_hash:
             logger().debug("file is already available locally: %s (md5: %s)", artifact, fp_hash)
-            skipped_artifacts.append(artifact_filename)
+            skipped_artifacts.append(artifact)
             continue
 
         if local_hash and local_hash != fp_hash:
@@ -419,7 +419,7 @@ def download_artifacts(
             with open(artifact_filename, "wb") as out_file:
                 for chunk in reply.iter_content(chunk_size=1 << 16):
                     out_file.write(chunk)
-            downloaded_artifacts.append(artifact_filename)
+            downloaded_artifacts.append(artifact)
 
     return downloaded_artifacts, skipped_artifacts
 
@@ -605,7 +605,7 @@ def find_matching_queue_item(
 def _fn_fetch(args: Args) -> None:
     """Entry point for fetching artifacts"""
     # logger().debug("Parsed params: %s", params)
-    fetch_job_artifacts(
+    artifacts = fetch_job_artifacts(
         args.job,
         credentials=args.credentials,
         params=args.params and {k: v for p in (args.params) for k, v in p.items()},
@@ -622,6 +622,8 @@ def _fn_fetch(args: Args) -> None:
         omit_new_build=args.omit_new_build,
         force_new_build=args.force_new_build,
     )
+    for artifact in artifacts:
+        print(artifact)
 
 
 def fetch_job_artifacts(
@@ -636,7 +638,7 @@ def fetch_job_artifacts(
     out_dir: Union[None, Path] = None,
     omit_new_build: bool = False,
     force_new_build: bool = False,
-) -> Sequence[Path]:
+) -> Sequence[str]:
     """Returns artifacts of Jenkins job specified by @job_full_path matching @params and
     @time_constraints. If none of the existing builds match the conditions a new build will be
     issued. If the existing build has not finished yet it will be waited for."""
