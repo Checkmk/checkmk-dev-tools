@@ -9,30 +9,30 @@ import sys
 import time
 from argparse import ArgumentParser
 from argparse import Namespace as Args
-from collections.abc import Iterator, Mapping, Sequence
 from configparser import ConfigParser
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import datetime
+from itertools import chain
 from pathlib import Path
 from subprocess import check_output
-from typing import TypeAlias, Union, cast
+from typing import Iterator, Mapping, Sequence, Tuple, Union, cast
 
 from jenkins import Jenkins
 
 # pylint: disable=too-many-instance-attributes
 # pylint: disable=fixme
 
-GenMapVal: TypeAlias = Union[None, bool, str, float, int, "GenMapArray", "GenMap"]
-GenMapArray: TypeAlias = Sequence[GenMapVal]
-GenMap: TypeAlias = Mapping[str, GenMapVal]
+GenMapVal = Union[None, bool, str, float, int, "GenMapArray", "GenMap"]
+GenMapArray = Sequence[GenMapVal]
+GenMap = Mapping[str, GenMapVal]
 
-PathHashes: TypeAlias = Mapping[str, str]
-JobParamValue: TypeAlias = int | str
-JobParams: TypeAlias = Mapping[str, JobParamValue]
+PathHashes = Mapping[str, str]
+JobParamValue = Union[int, str]
+JobParams = Mapping[str, JobParamValue]
 
-QueueId: TypeAlias = int
-BuildId: TypeAlias = int
+QueueId = int
+BuildId = int
 
 
 class Fatal(RuntimeError):
@@ -169,11 +169,11 @@ class Build:
     url: str
     number: int
     timestamp: datetime
-    result: None | str
+    result: Union[None, str]
     finished: bool
     parameters: GenMap
     path_hashes: Mapping[str, str]
-    artifacts: list[str]
+    artifacts: Sequence[str]
 
     def __str__(self) -> str:
         return (
@@ -251,7 +251,7 @@ class Folder:
         self.jobs = [cast(str, j["name"]) for j in cast(Sequence[GenMap], raw_job_info["jobs"])]
 
 
-def extract_credentials(credentials: None | Mapping[str, str]) -> Mapping[str, str]:
+def extract_credentials(credentials: Union[None, Mapping[str, str]]) -> Mapping[str, str]:
     """Turns the information provided via --credentials into actual values"""
     if credentials and (
         any(key in credentials for key in ("url", "url_env"))
@@ -279,7 +279,7 @@ def extract_credentials(credentials: None | Mapping[str, str]) -> Mapping[str, s
 
 @contextmanager
 def jenkins_client(
-    url: str, username: str, password: str, timeout: None | int = None
+    url: str, username: str, password: str, timeout: Union[None, int] = None
 ) -> Iterator[Jenkins]:
     """Create a Jenkins client interface using the config file used for JJB"""
     client = Jenkins(
@@ -319,7 +319,7 @@ def _fn_info(args: Args) -> None:
             raise Fatal(f"Don't know class type {class_name}")
 
 
-def md5from(filepath: Path) -> str | None:
+def md5from(filepath: Path) -> Union[str, None]:
     """Returns an MD5 sum from contents of file provided"""
     with suppress(FileNotFoundError):
         with open(filepath, "rb") as input_file:
@@ -341,7 +341,7 @@ def cwd(path: Path) -> Iterator[None]:
         os.chdir(prev_cwd)
 
 
-def git_commit_id(git_dir: Path, path: None | Path | str = None) -> str:
+def git_commit_id(git_dir: Path, path: Union[None, Path, str] = None) -> str:
     """Returns the git hash of combination of given paths. First one must be a directory, the
     second one is then considered relative"""
     assert git_dir.is_dir()
@@ -373,7 +373,7 @@ def params_from(build_info: GenMap, action_name: str, item_name: str) -> GenMap:
 
 def download_artifacts(
     client: Jenkins, build: Build, out_dir: Path
-) -> tuple[Sequence[str], Sequence[str]]:
+) -> Tuple[Sequence[Path], Sequence[Path]]:
     """Downloads all artifacts listed for given job/build to @out_dir"""
     # pylint: disable=protected-access
 
@@ -451,7 +451,7 @@ def path_hashes_match(actual: PathHashes, required: PathHashes) -> bool:
 
 def find_mismatching_parameters(
     first: GenMap, second: GenMap
-) -> Sequence[tuple[str, JobParamValue, JobParamValue]]:
+) -> Sequence[Tuple[str, JobParamValue, JobParamValue]]:
     """Returns list of key and mismatching values in mapping @first which also occur in @second"""
     # TODO: find solution for unprovided parameters and default/empty values
     return [
@@ -463,8 +463,8 @@ def find_mismatching_parameters(
 
 def meets_constraints(
     build: Build,
-    params: None | JobParams,
-    time_constraints: None | str,
+    params: Union[None, JobParams],
+    time_constraints: Union[None, str],
     path_hashes: PathHashes,
     *,
     now: datetime = datetime.now(),
@@ -559,9 +559,9 @@ def build_id_from_queue_item(client: Jenkins, queue_id: QueueId) -> BuildId:
 def find_matching_queue_item(
     client: Jenkins,
     job: Job,
-    params: None | JobParams,
+    params: Union[None, JobParams],
     path_hashes: PathHashes,
-) -> BuildId | None:
+) -> Union[BuildId, None]:
     """Looks for a queued build matching job and parameters and returns the QueueId"""
     for queue_item in client.get_queue_info():
         if not cast(str, queue_item.get("_class", "")).startswith("hudson.model.Queue"):
@@ -627,16 +627,16 @@ def _fn_fetch(args: Args) -> None:
 def fetch_job_artifacts(
     job_full_path: str,
     *,
-    credentials: None | Mapping[str, str] = None,
-    params: None | JobParams = None,
-    params_no_check: None | JobParams = None,
-    dependency_paths: None | Sequence[str] = None,
-    base_dir: None | Path = None,
-    time_constraints: None | str = None,
-    out_dir: None | Path = None,
+    credentials: Union[None, Mapping[str, str]] = None,
+    params: Union[None, JobParams] = None,
+    params_no_check: Union[None, JobParams] = None,
+    dependency_paths: Union[None, Sequence[str]] = None,
+    base_dir: Union[None, Path] = None,
+    time_constraints: Union[None, str] = None,
+    out_dir: Union[None, Path] = None,
     omit_new_build: bool = False,
     force_new_build: bool = False,
-) -> Sequence[str]:
+) -> Sequence[Path]:
     """Returns artifacts of Jenkins job specified by @job_full_path matching @params and
     @time_constraints. If none of the existing builds match the conditions a new build will be
     issued. If the existing build has not finished yet it will be waited for."""
@@ -773,7 +773,7 @@ def fetch_job_artifacts(
             len(skipped_artifacts),
         )
 
-        return downloaded_artifacts + skipped_artifacts
+        return list(chain(downloaded_artifacts, skipped_artifacts))
 
 
 def main() -> None:
