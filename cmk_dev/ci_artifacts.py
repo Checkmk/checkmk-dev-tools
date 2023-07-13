@@ -640,6 +640,7 @@ def _fn_fetch(args: Args) -> None:
         out_dir=args.out_dir,
         omit_new_build=args.omit_new_build,
         force_new_build=args.force_new_build,
+        no_remove_others=args.no_remove_others,
     )
     for artifact in artifacts:
         print(artifact)
