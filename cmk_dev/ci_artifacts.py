@@ -122,6 +122,11 @@ def parse_args() -> Args:
         help="Directory to put artifacts to - relative to --base-dir if relative",
     )
     parser_fetch.add_argument(
+        "--no-remove-others",
+        action="store_true",
+        help="If set, existing files not part of artifacts won't be deleted",
+    )
+    parser_fetch.add_argument(
         "-f",
         "--force-new-build",
         action="store_true",
@@ -372,10 +377,14 @@ def params_from(build_info: GenMap, action_name: str, item_name: str) -> GenMap:
 
 
 def download_artifacts(
-    client: Jenkins, build: Build, out_dir: Path
+    client: Jenkins,
+    build: Build,
+    out_dir: Path,
+    no_remove_others: bool = False,
 ) -> Tuple[Sequence[str], Sequence[str]]:
     """Downloads all artifacts listed for given job/build to @out_dir"""
     # pylint: disable=protected-access
+    # pylint: disable=too-many-locals
 
     downloaded_artifacts, skipped_artifacts = [], []
 
@@ -393,7 +402,12 @@ def download_artifacts(
     if not fingerprints:
         raise Fatal(f"no (fingerprinted) artifacts found at {build.url}")
 
+    existing_files = set(
+        p.relative_to(out_dir).as_posix() for p in out_dir.glob("**/*") if p.is_file()
+    )
+
     for artifact in build.artifacts:
+        existing_files -= {artifact}
         fp_hash = fingerprints[artifact.split("/")[-1]]
         logger().debug("handle artifact: %s (md5: %s)", artifact, fp_hash)
         artifact_filename = out_dir / artifact
@@ -420,6 +434,11 @@ def download_artifacts(
                 for chunk in reply.iter_content(chunk_size=1 << 16):
                     out_file.write(chunk)
             downloaded_artifacts.append(artifact)
+
+    if not no_remove_others:
+        for path in existing_files - set(downloaded_artifacts) - set(skipped_artifacts):
+            logger().debug("Remove superfluous file %s", path)
+            (out_dir / path).unlink()
 
     return downloaded_artifacts, skipped_artifacts
 
@@ -638,6 +657,7 @@ def fetch_job_artifacts(
     out_dir: Union[None, Path] = None,
     omit_new_build: bool = False,
     force_new_build: bool = False,
+    no_remove_others: bool = False,
 ) -> Sequence[str]:
     """Returns artifacts of Jenkins job specified by @job_full_path matching @params and
     @time_constraints. If none of the existing builds match the conditions a new build will be
@@ -766,7 +786,10 @@ def fetch_job_artifacts(
 
         full_out_dir = used_base_dir / (out_dir or "")
         downloaded_artifacts, skipped_artifacts = download_artifacts(
-            client, build_candidate, full_out_dir
+            client,
+            build_candidate,
+            full_out_dir,
+            no_remove_others,
         )
         logger().info(
             "%d artifacts available in %s (%d skipped, because it existed already)",
