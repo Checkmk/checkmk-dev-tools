@@ -20,7 +20,7 @@ CONFIG_FILE = Path("~/.docker_shaper/config.py").expanduser()
 
 def log() -> logging.Logger:
     """Logger for this module"""
-    return logging.getLogger("docker-shaper.server")
+    return logging.getLogger("docker-shaper")
 
 
 async def schedule_print_container_stats(global_state):
@@ -171,7 +171,9 @@ async def handle_docker_events(global_state: dynamic.GlobalState):
         docker = Docker()
         async for line in read_process_output("docker events"):
             try:
-                await asyncio.ensure_future(dynamic.handle_docker_event_line(global_state, line))
+                await asyncio.ensure_future(
+                    dynamic.handle_docker_event_line(global_state, line, docker)
+                )
             except Exception as exc:
                 log().exception("Unhandled exception caught!")
                 dynamic.report(
@@ -205,8 +207,11 @@ def serve():
 
     global_state = dynamic.GlobalState()
     load_config(CONFIG_FILE, global_state)
+    dynamic.setup_introspection()
 
     async def generic_response(endpoint: str) -> Response:
+        if not hasattr(dynamic, f"response_{endpoint}"):
+            return f"Not known: {endpoint}"
         try:
             return await getattr(dynamic, f"response_{endpoint}")(global_state)
         except Exception as exc:
@@ -228,7 +233,7 @@ def serve():
 
     @app.route("/<generic>", methods=["GET", "POST"])
     async def route_generic(generic) -> Response:
-        if generic == "favicon.ico":
+        if generic in {"favicon.ico", "favicon2.so"}:
             return ""
         return await generic_response(generic)
 

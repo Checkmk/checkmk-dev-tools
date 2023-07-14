@@ -32,7 +32,7 @@ from docker_shaper.utils import (
 
 def log() -> logging.Logger:
     """Logger for this module"""
-    return logging.getLogger("docker-shaper.dynamic")
+    return logging.getLogger("docker-shaper")
 
 
 @dataclass
@@ -42,8 +42,11 @@ class GlobalState:
     intervals: MutableMapping[str, float]
     image_ids: MutableMapping[str, object]
     images: MutableMapping[str, object]
+    images_crawled: bool
     containers: MutableMapping[str, object]
+    containers_crawled: bool
     volumes: MutableMapping[str, object]
+    volumes_crawled: bool
     event_horizon: int
     last_referenced: MutableMapping[str, MutableSequence[int]]
     tag_rules: MutableMapping[str, int]
@@ -65,8 +68,11 @@ class GlobalState:
         self.cleanup_fuse = 0
         self.image_ids = {}
         self.images = {}
+        self.images_crawled = False
         self.containers = {}
+        self.containers_crawled = False
         self.volumes = {}
+        self.volumes_crawled = False
 
         self.event_horizon = int(time.time())
         self.last_referenced = {}
@@ -186,10 +192,12 @@ def event_from(line: str):
     )
 
 
-async def handle_docker_event_line(global_state: GlobalState, line: str):
+async def handle_docker_event_line(global_state: GlobalState, line: str, docker_client) -> None:
     """Read a `docker events` line and maintain the last-used information"""
 
     tstamp, object_type, operator, _cmd, uid, params = event_from(line)
+
+    # print(f"{object_type} {operator} {uid}")
 
     if (object_type, operator) in {
         ("image", "tag"),
@@ -205,40 +213,79 @@ async def handle_docker_event_line(global_state: GlobalState, line: str):
             ident,
             uid,
         )
-    elif object_type in {"network", "builder"}:
-        return
-    elif (object_type, operator) in {
-        ("image", "untag"),
-        ("image", "prune"),
-        ("image", "push"),
-        ("image", "delete"),
-        ("container", "exec_create:"),
-        ("container", "exec_start:"),
-        ("container", "exec_die"),
-        ("container", "kill"),
-        ("container", "start"),
-        ("container", "attach"),
-        ("container", "die"),
-        ("container", "top"),
-        ("container", "destroy"),
-        ("container", "prune"),
-        ("container", "stop"),
-        ("container", "resize"),
-        ("container", "archive-path"),
-        ("network", "connect"),
-        ("network", "disconnect"),
-        ("volume", "create"),
-        ("volume", "mount"),
-        ("volume", "unmount"),
-        ("volume", "destroy"),
-    }:
-        return
+        global_state.event_horizon = min(global_state.event_horizon, tstamp)
+        register_reference(ident, tstamp, global_state)
+
+    if object_type == "container":
+        if operator in {
+            "create",
+        }:
+            container = await container_from(docker_client, uid)
+            assert container
+            register_container(container, global_state)
+
+        if operator in {
+            "destroy",
+        }:
+            # not needed, since watch_container() already takes care..
+            # unregister_container(uid, global_state)
+
+            if await container_from(docker_client, unique_ident(uid)):
+                report(global_state, "error", f"container {uid} still alive after {operator}")
+
+        elif operator in {
+            "exec_create:",
+            "exec_start:",
+            "exec_die",
+            "kill",
+            "start",
+            "attach",
+            "top",
+            "prune",
+            "die",
+            "stop",
+            "resize",
+            "archive-path",
+        }:
+            if (
+                operator not in {"prune", "destroy"}
+                and not await container_from(docker_client, unique_ident(uid))
+                and global_state.containers_crawled
+            ):
+                report(
+                    global_state,
+                    "error",
+                    f"operator is {operator} but container {uid} does not exist",
+                )
+        # del global_state.images[ident]
+        # del global_state.volumes[ident]
+
+    elif object_type == "image":
+        if operator in {
+            "untag",
+            "prune",
+            "push",
+            "delete",
+        }:
+            return
+
+    elif object_type == "network":
+        if operator in {
+            "connect",
+            "disconnect",
+        }:
+            return
+
+    elif object_type == "volume":
+        if operator in {
+            "create",
+            "mount",
+            "unmount",
+            "destroy",
+        }:
+            return
     else:
         log().warning("unknown type/operator %s %s", object_type, operator)
-        return
-
-    global_state.event_horizon = min(global_state.event_horizon, tstamp)
-    register_reference(ident, tstamp, global_state)
 
 
 def is_uid(ident: str) -> bool:
@@ -247,7 +294,7 @@ def is_uid(ident: str) -> bool:
     48a3535fe27fea1ac6c2f41547770d081552c54b2391c2dda99e2ad87561a4f2
     48a3535fe27f
     """
-    return (
+    return bool(
         ident.startswith("sha256:")
         or re.match("[0-9a-f]{64}", ident)
         or re.match("[0-9a-f]{10}", ident)
@@ -255,6 +302,7 @@ def is_uid(ident: str) -> bool:
 
 
 def unique_ident(ident: str) -> str:
+    """Return a short Id if ident is a unique id and leave it as it is otherwise"""
     return short_id(ident) if is_uid(ident) else ident
 
 
@@ -766,7 +814,7 @@ async def watch_container(container, global_state: GlobalState):
     name = "unknown"
     containers = global_state.containers
     try:
-        container_info = containers[container.id]
+        container_info = containers[unique_ident(container.id)]
         container_info["container"] = container
         container_info["short_id"] = (short_id_ := short_id(container.id))
         container_info["show"] = (show := await container.show())
@@ -789,7 +837,7 @@ async def watch_container(container, global_state: GlobalState):
         log().exception("Unhandled exception in watch_container()")
     finally:
         log().info("<< container terminated: %s %s", short_id_, name)
-        del containers[container.id]
+        unregister_container(container.id, global_state)
 
 
 async def watch_images(docker_client, global_state):
@@ -811,15 +859,29 @@ async def watch_images(docker_client, global_state):
             )
 
 
+def register_container(container, global_state: GlobalState) -> None:
+    log().debug(f"register container {container.id}")
+    global_state.containers[unique_ident(container.id)] = {}
+    asyncio.ensure_future(watch_container(container, global_state))
+
+
+def unregister_container(ident, global_state: GlobalState) -> None:
+    try:
+        del global_state.containers[unique_ident(ident)]
+    except KeyError:
+        report(global_state, "error", f"tried to remove container {ident} unknown to registry")
+
+
 async def watch_containers(docker_client, global_state: GlobalState):
     # TODO: also use events to register
-    log().info("crawl containers..")
+    log().debug("crawl containers..")
     for container in await docker_client.containers.list(all=True):
-        log().debug("  found container %s", container.id)
-        if container.id not in global_state.containers:
-            global_state.containers[container.id] = {}
-
-            asyncio.ensure_future(watch_container(container, global_state))
+        if unique_ident(container.id) not in global_state.containers:
+            log().debug("  found container %s", container.id)
+            if global_state.containers_crawled:
+                log().error("%s should have been registered automatically before!", container.id)
+            register_container(container, global_state)
+    global_state.containers_crawled = True
 
 
 async def watch_volumes(docker_client, global_state: GlobalState):
@@ -866,6 +928,12 @@ def expired_idents(image, now, global_state: GlobalState):
 async def image_from(docker_client: Docker, ident: str) -> bool:
     with suppress(DockerError):
         return await docker_client.images.get(ident)
+    return None
+
+
+async def container_from(docker_client: Docker, ident: str) -> bool:
+    with suppress(DockerError):
+        return await docker_client.containers.get(ident)
     return None
 
 
@@ -918,19 +986,27 @@ async def cleanup(docker_client: Docker, global_state):
         for ident in [
             ident for ident in global_state.images if not await image_from(docker_client, ident)
         ]:
-            log().warning("reference to image %s has not been cleaned up, I'll do it now..", ident)
+            report(global_state, "warn", f"reference to image {ident} has not been cleaned up")
             del global_state.images[ident]
+
+        for ident in [
+            ident
+            for ident in global_state.containers
+            if not await container_from(docker_client, ident)
+        ]:
+            report(global_state, "warn", f"reference to container {ident} has not been cleaned up")
+            del global_state.containers[ident]
 
         for ident in [
             ident for ident in global_state.volumes if not await volume_from(docker_client, ident)
         ]:
-            log().warning("reference to volume %s has not been cleaned up, I'll do it now..", ident)
+            report(global_state, "warn", f"reference to volume {ident} has not been cleaned up")
             del global_state.volumes[ident]
     finally:
         report(global_state, "info", f"cleanup done", None)
 
 
-def report(global_state, msg_type, message: str, extra):
+def report(global_state, msg_type, message: str, extra=None):
     # TODO: cleanup
     # TODO: persist
     log().info(message)

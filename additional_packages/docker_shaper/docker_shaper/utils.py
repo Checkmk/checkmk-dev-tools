@@ -26,7 +26,7 @@ LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
 def log() -> logging.Logger:
     """Logger for this module"""
-    return logging.getLogger("docker-shaper.utils")
+    return logging.getLogger("docker-shaper")
 
 
 def setup_logging(level: str = "INFO") -> None:
@@ -191,6 +191,9 @@ def date_str(date: datetime) -> str:
 
 
 def date_from(timestamp: Union[int, float, str]) -> Union[None, datetime]:
+    """
+    2023-07-14T15:05:32.174200714+02:00
+    """
     try:
         if isinstance(timestamp, (int, float)):
             return datetime.fromtimestamp(timestamp)
@@ -201,6 +204,8 @@ def date_from(timestamp: Union[int, float, str]) -> Union[None, datetime]:
                 .replace(tzinfo=tz.tzutc())
                 .astimezone(tz.tzlocal())
             )
+        if len(timestamp) == 35:
+            timestamp = timestamp[:19] + timestamp[-6:]
         return datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S%z")
     except OverflowError:
         return None
