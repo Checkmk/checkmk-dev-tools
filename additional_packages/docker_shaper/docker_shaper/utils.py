@@ -169,7 +169,7 @@ def dur_str(seconds: int, fixed=False) -> str:
     return ":".join(e for e in (days, hours, minutes, seconds_str) if e)
 
 
-def age_str(now: Union[int, datetime], age: Union[int, datetime, None]) -> str:
+def age_str(now: Union[int, datetime], age: Union[int, datetime, None], fixed: bool = False) -> str:
     """Turn a number of seconds into something human readable"""
     if age is None:
         return "--"
@@ -178,7 +178,7 @@ def age_str(now: Union[int, datetime], age: Union[int, datetime, None]) -> str:
             (now.timestamp() if isinstance(now, datetime) else now)
             - (age.timestamp() if isinstance(age, datetime) else age)
         ),
-        fixed=True,
+        fixed=fixed,
     )
 
 

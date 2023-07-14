@@ -3,6 +3,7 @@
 import asyncio
 import importlib
 import logging
+import sys
 from contextlib import suppress
 from importlib.machinery import SourceFileLoader
 from importlib.util import module_from_spec, spec_from_file_location
@@ -141,17 +142,23 @@ def load_config(path, global_state):
 
 
 async def watch_fs_changes(global_state):
+    """Watch for changes on imported files and reload them on demand"""
     CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+
     async for changed_file in fs_changes(
-        Path(dynamic.__file__).parent, CONFIG_FILE.parent, timeout=1
+        Path(dynamic.__file__).parent, CONFIG_FILE.parent, timeout=2
     ):
-        log().info("file %s changed - reload module", changed_file)
         try:
-            if changed_file == Path(dynamic.__file__):
-                importlib.reload(dynamic)
-                dynamic.setup_introspection()
-            elif changed_file == CONFIG_FILE:
+            if changed_file == CONFIG_FILE:
+                log().info("config file %s changed - apply changes", changed_file)
                 load_config(CONFIG_FILE, global_state)
+            else:
+                for module in [mod for mod in sys.modules.values() if hasattr(mod, "__file__")]:
+                    if changed_file == Path(module.__file__):
+                        log().info("file %s changed - reload module", changed_file)
+                        importlib.reload(module)
+                        dynamic.setup_introspection()
+
         except Exception as exc:
             log().exception("Reloading dynamic part failed!")
             dynamic.report(global_state, "error", f"exception in module reload: {exc}", exc)
@@ -178,6 +185,7 @@ async def handle_docker_events(global_state: dynamic.GlobalState):
 def no_serve():
     global_state = dynamic.GlobalState()
     load_config(CONFIG_FILE, global_state)
+    dynamic.setup_introspection()
     with suppress(KeyboardInterrupt, BrokenPipeError):
         asyncio.ensure_future(watch_fs_changes(global_state))
         asyncio.ensure_future(schedule_print_container_stats(global_state))

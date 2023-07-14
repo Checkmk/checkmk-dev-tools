@@ -422,7 +422,7 @@ class ImageTable(BaseTable):
                 "short_id": coloured_ident(image["short_id"]),
                 "tags": "".join(map(coloured_ident, image["tags"] or [])),
                 "created_at": date_str(image["created_at"]),
-                "age": age_str(now, date_from(image["created_at"])),
+                "age": age_str(now, date_from(image["created_at"]), fixed=True),
                 # "last_referenced": last_referenced_str(image["short_id"]),
                 # "class": "text-danger" if would_cleanup_image(image, now, global_state) else "text-success",
             }
@@ -484,7 +484,7 @@ class ContainerTable(BaseTable):
                         "started_at": date_str(
                             started_at := date_from(cnt["show"]["State"]["StartedAt"])
                         ),
-                        "uptime": age_str(now, started_at),
+                        "uptime": age_str(now, started_at, fixed=True),
                         "status": cnt["show"]["State"]["Status"],
                         "hints": label_filter(cnt["show"]["Config"]["Labels"]),
                         "pid": int(cnt["show"]["State"]["Pid"]),
@@ -941,6 +941,5 @@ def report(global_state, msg_type, message: str, extra):
 
 
 def reconfigure(global_state: GlobalState) -> None:
-    setup_introspection()
     for ident, reference in global_state.last_referenced.items():
         reference[1] = expiration_age_from_ident(ident, global_state)
