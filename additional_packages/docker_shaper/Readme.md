@@ -31,18 +31,21 @@ Navigate to e.g. http://build-fra-003:5432/
 - [x] new: untag certain tags
 - [x] new: container cleanup
 - [x] Fix `none` image lookup
-- [ ] Exceptions to messages
-- [ ] Clip / persist messages
+- [x] Exceptions to messages
+- [x] Clip
+- [x] Increase/decrease logging via web / signal
+- [x] Link: cleanup (images/containers) now
+- [x] Add volumes list (with recent owners)
+- [ ] Bring in `list_volumes` (volume monitoring)
+- [ ] Containers: show total CPU usage
+- [ ] Containers: list volumes
+- [ ] Volumes: list usage
+- [ ] Persist messages
 - [ ] Instructions to readme
 - [ ] List unmatched / overmatched tags
-- [ ] bring in `list_volumes` (volume monitoring)
-- [ ] Add volumes list (with recent owners)
-- [ ] Increase/decrease logging via web / signal
 - [ ] Links to `delete` / `remove`
 - [ ] Links to jobs
-- [ ] Skipable `wait`
 - [ ] Link: inspect
-- [ ] Link: cleanup (images/containers) now
 - [ ] Graph: cpu / containers (idle/up)
 - [ ] Authenticate (at least if we can modify behavior, like stopping/removing images/containers)
 

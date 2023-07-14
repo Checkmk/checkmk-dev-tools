@@ -35,6 +35,7 @@ types-pyyaml = "^6.0.12.6"
 twine = "^4.0.2"
 yamllint = "^1.29.0"
 pylint-per-file-ignores = "^1.2.1"
+types-python-dateutil = "^2.8.19.13"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

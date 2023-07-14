@@ -6,7 +6,6 @@ import logging
 from contextlib import suppress
 from importlib.machinery import SourceFileLoader
 from importlib.util import module_from_spec, spec_from_file_location
-from itertools import count
 from pathlib import Path
 
 from aiodocker import Docker
@@ -160,14 +159,12 @@ async def watch_fs_changes(global_state):
     assert False
 
 
-async def handle_docker_events(global_state):
+async def handle_docker_events(global_state: dynamic.GlobalState):
     try:
         docker = Docker()
         async for line in read_process_output("docker events"):
             try:
-                await asyncio.ensure_future(
-                    dynamic.handle_docker_event_line(docker, global_state, line)
-                )
+                await asyncio.ensure_future(dynamic.handle_docker_event_line(global_state, line))
             except Exception as exc:
                 log().exception("Unhandled exception caught!")
                 dynamic.report(
@@ -207,6 +204,7 @@ def serve():
         except Exception as exc:
             log().exception("Unhandled exception in response_%s()", endpoint)
             dynamic.report(global_state, "error", f"exception in response_{endpoint}: {exc}", exc)
+            raise
 
     async def self_destroy():
         await app.terminator.wait()
@@ -259,7 +257,7 @@ def serve():
         return redirect("dashboard")
 
     @app.before_serving
-    async def create_db_pool():
+    async def start_background_tasks():
         asyncio.ensure_future(self_destroy())
         asyncio.ensure_future(watch_fs_changes(global_state))
         # asyncio.ensure_future(print_container_stats(global_state))

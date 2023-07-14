@@ -3,28 +3,31 @@
 """Functionality that might change during runtime
 """
 import asyncio
-import glob
 import logging
 import os
 import re
-import signal
-import sys
 import time
-import traceback
 from collections import Counter
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
 from subprocess import CalledProcessError
-from typing import MutableMapping, MutableSequence, Optional, Tuple, Union
+from typing import MutableMapping, MutableSequence, Optional, Tuple
 
 from aiodocker import Docker, DockerError
 from dateutil import tz
 from flask_table import Col, Table
 from quart import redirect, render_template, request, url_for
 
-from docker_shaper.utils import impatient, process_output
+from docker_shaper.utils import (
+    age_str,
+    date_from,
+    date_str,
+    dur_str,
+    impatient,
+    process_output,
+    setup_introspection,
+)
 
 
 def log() -> logging.Logger:
@@ -34,6 +37,8 @@ def log() -> logging.Logger:
 
 @dataclass
 class GlobalState:
+    """The dirty globally shared state of docker-shaper"""
+
     intervals: MutableMapping[str, float]
     image_ids: MutableMapping[str, object]
     images: MutableMapping[str, object]
@@ -62,17 +67,6 @@ class GlobalState:
         self.images = {}
         self.containers = {}
         self.volumes = {}
-        # self.volumes = {
-        # "0f32fa9536f3d80cf4c80ce3a7b856834939c9b56504ef75486f0971837afc14": {
-        # "CreatedAt": "2023-07-10T03:28:48+02:00",
-        # "Driver": "local",
-        # "Labels": None,
-        # "Mountpoint": "/var/lib/docker/volumes/0f32fa9536f3d80cf4c80ce3a7b856834939c9b56504ef75486f0971837afc14/_data",
-        # "Name": "0f32fa9536f3d80cf4c80ce3a7b856834939c9b56504ef75486f0971837afc14",
-        # "Options": None,
-        # "Scope": "local",
-        # },
-        # }
 
         self.event_horizon = int(time.time())
         self.last_referenced = {}
@@ -94,53 +88,6 @@ def short_id(docker_id: str) -> str:
         return docker_id
     assert is_uid(docker_id)
     return docker_id[7:17] if docker_id.startswith("sha256:") else docker_id[:10]
-
-
-def dur_str(seconds: int, fixed=False) -> str:
-    days = f"{seconds//86400:02d}d" if fixed or seconds >= 86400 else ""
-    hours = f"{seconds//3600%24:02d}h" if fixed or seconds >= 3600 else ""
-    minutes = f"{seconds//60%60:02d}m" if fixed or seconds >= 60 else ""
-    seconds_str = f"{seconds%60:02d}s" if not fixed else ""
-    return ":".join(e for e in (days, hours, minutes, seconds_str) if e)
-
-
-def age_str(now: Union[int, datetime], age: Union[int, datetime, None]) -> str:
-    """Turn a number of seconds into something human readable"""
-    if age is None:
-        return "--"
-    return dur_str(
-        int(
-            (now.timestamp() if isinstance(now, datetime) else now)
-            - (age.timestamp() if isinstance(age, datetime) else age)
-        ),
-        fixed=True,
-    )
-
-
-def date_str(date: datetime) -> str:
-    if not date:
-        return "--"
-    return (date if isinstance(date, datetime) else datetime.fromtimestamp(date)).strftime(
-        "%Y.%m.%d-%H:%M:%S"
-    )
-
-
-def date_from(timestamp: Union[int, float, str]) -> datetime:
-    try:
-        if isinstance(timestamp, (int, float)):
-            return datetime.fromtimestamp(timestamp)
-
-        if timestamp[-1] == "Z":
-            return (
-                datetime.strptime(timestamp[:19], "%Y-%m-%dT%H:%M:%S")
-                .replace(tzinfo=tz.tzutc())
-                .astimezone(tz.tzlocal())
-            )
-        return datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S%z")
-    except OverflowError:
-        return None
-    except Exception as exc:
-        raise ValueError(f"Could not parse datetime from <{timestamp!r}> ({exc})")
 
 
 @impatient
@@ -239,7 +186,7 @@ def event_from(line: str):
     )
 
 
-async def handle_docker_event_line(docker_client, global_state, line):
+async def handle_docker_event_line(global_state: GlobalState, line: str):
     """Read a `docker events` line and maintain the last-used information"""
 
     tstamp, object_type, operator, _cmd, uid, params = event_from(line)
@@ -276,6 +223,7 @@ async def handle_docker_event_line(docker_client, global_state, line):
         ("container", "destroy"),
         ("container", "prune"),
         ("container", "stop"),
+        ("container", "resize"),
         ("container", "archive-path"),
         ("network", "connect"),
         ("network", "disconnect"),
@@ -996,70 +944,3 @@ def reconfigure(global_state: GlobalState) -> None:
     setup_introspection()
     for ident, reference in global_state.last_referenced.items():
         reference[1] = expiration_age_from_ident(ident, global_state)
-
-
-def increase_loglevel(*_):
-    """Become one level more verbose.
-    If level is already DEBUG we go back to WARNING.
-    """
-    try:
-        new_level = {
-            logging.WARNING: logging.INFO,
-            logging.INFO: logging.DEBUG,
-            logging.DEBUG: logging.WARNING,
-        }.get(log().level) or logging.INFO
-
-        log().setLevel(new_level)
-        logging.getLogger("docker-shaper.server").setLevel(new_level)
-        level = {
-            logging.CRITICAL: "CRITICAL",
-            logging.ERROR: "ERROR",
-            logging.WARNING: "WARNING",
-            logging.INFO: "INFO",
-            logging.DEBUG: "DEBUG",
-        }[new_level]
-        print(f"increase_loglevel to {level}", file=sys.stderr)
-    except Exception:
-        log().exception("Could not fully write application stack trace")
-
-
-def print_stacktrace_on_signal(sig, frame):
-    """interrupt running process, and provide a python prompt for
-    interactive debugging.
-    see http://stackoverflow.com/questions/132058
-       "showing-the-stack-trace-from-a-running-python-application"
-    """
-    try:
-        print(f"signal {sig} received - print stack trace", file=sys.stderr)
-
-        def print_stack_frame(stack_frame, file):
-            for _f in traceback.format_stack(stack_frame):
-                for _l in _f.splitlines():
-                    print(_l, file=file)
-
-        def print_stack_frames(file):
-            print("++++++ MAIN ++++++++", file=file)
-            print_stack_frame(frame, file)
-            for task in asyncio.all_tasks():
-                print(f"++++++ {task.get_coro().__name__} ++++++++", file=file)
-                for stack in task.get_stack(limit=1000):
-                    print_stack_frame(stack, file)
-
-        print_stack_frames(sys.stderr)
-        with open(Path("~/.docker_shaper/traceback.log").expanduser(), "w") as trace_file:
-            print_stack_frames(trace_file)
-    except Exception:
-        log().exception("Could not fully write application stack trace")
-
-
-def setup_introspection():
-    """Install signal handlers for some debug stuff"""
-
-    def setup_signal(sig, func, msg):
-        signal.signal(sig, func)
-        signal.siginterrupt(sig, False)
-        sig_str = {signal.SIGUSR1: "USR1", signal.SIGUSR2: "USR2"}.get(sig, sig)
-        print(f"Run `kill -{sig_str} {os.getpid()}` to {msg}", file=sys.stderr)
-
-    setup_signal(signal.SIGUSR1, increase_loglevel, "increase log level")
-    setup_signal(signal.SIGUSR2, print_stacktrace_on_signal, "print stacktrace")

@@ -4,8 +4,17 @@
 
   <table class="table table-striped">
     <tr>
-      <td>event_horizon (monitoring since)</td>
-      <td><b>{{meta.event_horizon}}</b></td>
+      <td>event_horizon (monitoring since): <b>{{meta.event_horizon}}</b></td>
+      <td>
+        <form method="post" action="cleanup" class="inline">
+          <!--
+          <input type="hidden" name="extra_submit_param" value="extra_submit_value">
+          -->
+          <button name="submit_param" value="submit_value">
+            Cleanup (automatic in {{meta.next_cleanup}})
+          </button>
+        </form>
+      </td>
       <td></td>
       <td></td>
       <td></td>
