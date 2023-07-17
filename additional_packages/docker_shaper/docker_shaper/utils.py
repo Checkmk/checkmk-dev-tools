@@ -267,7 +267,7 @@ def print_stacktrace_on_signal(sig, frame):
         log().exception("Could not fully write application stack trace")
 
 
-def setup_introspection():
+def setup_introspection_on_signal():
     """Install signal handlers for some debug stuff"""
 
     def setup_signal(sig, func, msg):

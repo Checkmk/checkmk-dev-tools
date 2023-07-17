@@ -12,12 +12,12 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
 from subprocess import CalledProcessError
-from typing import MutableMapping, MutableSequence, Optional, Tuple
+from typing import MutableMapping, MutableSequence, Optional, Set, Tuple
 
 from aiodocker import Docker, DockerError
 from dateutil import tz
 from flask_table import Col, Table
-from quart import redirect, render_template, request, url_for
+from quart import redirect, render_template, request, url_for, websocket
 
 from docker_shaper.utils import (
     age_str,
@@ -26,7 +26,7 @@ from docker_shaper.utils import (
     dur_str,
     impatient,
     process_output,
-    setup_introspection,
+    setup_introspection_on_signal,
 )
 
 
@@ -55,6 +55,7 @@ class GlobalState:
     switches: MutableMapping[str, bool]
     hostname: str
     expiration_ages: MutableMapping[str, int]
+    update_mqueues: Set[asyncio.Queue]
 
     def __init__(self):
         self.intervals = {
@@ -83,6 +84,25 @@ class GlobalState:
         self.messages = []
         self.hostname = open("/etc/hostname").read().strip()
         self.expiration_ages = {}
+        self.update_mqueues = set()
+
+    def new_update_queue(self) -> asyncio.Queue:
+        """Creates and returns a new message queue"""
+        mqueue = asyncio.Queue()
+        self.update_mqueues.add(mqueue)
+        log().info("new connection (%d)", len(self.update_mqueues))
+        return mqueue
+
+    def remove_queue(self, mqueue: asyncio.Queue) -> None:
+        """Removes an existing queue from message queues"""
+        self.update_mqueues.remove(mqueue)
+        del mqueue
+        log().info("closed connection (%d)", len(self.update_mqueues))
+
+    async def inform(self, message: str) -> None:
+        """Send a message to all connected message queues"""
+        for mqueue in self.update_mqueues:
+            await mqueue.put(message)
 
 
 def short_id(docker_id: str) -> str:
@@ -407,13 +427,14 @@ def label_filter(label_values):
     )
 
 
-async def dump_global_state(global_state):
+async def dump_global_state(global_state: GlobalState):
     global_state.counter += 1
     print(f"STATE: {', '.join('='.join(map(str, i)) for i in global_state.intervals.items())}")
     print(f"STATE: frame counter: {global_state.counter}")
     print(f"STATE: images: {len(global_state.images)}")
     print(f"STATE: containers: {len(global_state.containers)}")
     print(f"STATE: tag_rules: {len(global_state.tag_rules)}")
+    print(f"STATE: connections: {len(global_state.update_mqueues)}")
     print(
         f"STATE: tasks: {', '.join('/'.join(map(str, i)) for i in Counter(t.get_coro().__name__ for t in asyncio.all_tasks()).items())}"
     )
@@ -840,11 +861,9 @@ async def watch_container(container, global_state: GlobalState):
         unregister_container(container.id, global_state)
 
 
-async def watch_images(docker_client, global_state):
+async def watch_images(docker_client, global_state: GlobalState) -> None:
     # TODO: also use events to register
     log().info("crawl images..")
-    await asyncio.sleep(1)
-    # raise RuntimeError("XXX")
     for image in await docker_client.images.list(all=True):
         # log().debug("  found image %s", image["Id"])
         if True or image["Id"] not in global_state.images:
@@ -1007,6 +1026,7 @@ async def cleanup(docker_client: Docker, global_state):
 
 
 def report(global_state, msg_type, message: str, extra=None):
+    """Report an incident - maybe good or bad"""
     # TODO: cleanup
     # TODO: persist
     log().info(message)
@@ -1017,5 +1037,37 @@ def report(global_state, msg_type, message: str, extra=None):
 
 
 def reconfigure(global_state: GlobalState) -> None:
+    """Reacts on changes to the configuration, e.g. applies"""
     for ident, reference in global_state.last_referenced.items():
         reference[1] = expiration_age_from_ident(ident, global_state)
+
+
+def setup_introspection():
+    setup_introspection_on_signal()
+
+
+async def response_control_ws(global_state) -> None:
+    """Provides a way to talk with a connected client"""
+    # Only allow clients we know
+    # user_id = websocket.cookies.get("session")
+    # log().debug(f"/control({user_id})")
+    # if not user_id:
+    # websocket.close()
+
+    mqueue = global_state.new_update_queue()
+    await websocket.accept()
+
+    try:
+        while True:
+            message = await mqueue.get()
+            await websocket.send(message)
+            reply = await websocket.receive()
+            log().debug("reply to '%s': '%s'", message, reply)
+    except asyncio.CancelledError:
+        log().debug("got CancelledError")
+        raise
+    except Exception:
+        log().exception("Unhandled exception in control")
+    finally:
+        global_state.remove_queue(mqueue)
+        log().info("Connection closed")

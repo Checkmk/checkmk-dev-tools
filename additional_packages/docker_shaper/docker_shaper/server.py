@@ -269,6 +269,13 @@ def serve():
     async def root() -> Response:
         return redirect("dashboard")
 
+    @app.websocket("/control")
+    async def control() -> None:
+        """Provides websocket for updates on changes
+        see https://pgjones.gitlab.io/quart/how_to_guides/websockets.html
+        """
+        await dynamic.response_control_ws(global_state)
+
     @app.before_serving
     async def start_background_tasks():
         asyncio.ensure_future(self_destroy())
