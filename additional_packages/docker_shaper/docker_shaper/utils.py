@@ -192,9 +192,13 @@ def date_str(date: datetime) -> str:
 
 def date_from(timestamp: Union[int, float, str]) -> Union[None, datetime]:
     """
-    2023-07-14T15:05:32.174200714+02:00
+    >>> date_from("2023-07-14T15:05:32.174200714+02:00")
+    ?
     """
     try:
+        if isinstance(timestamp, datetime):
+            return timestamp
+
         if isinstance(timestamp, (int, float)):
             return datetime.fromtimestamp(timestamp)
 

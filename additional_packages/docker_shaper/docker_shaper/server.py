@@ -49,8 +49,8 @@ async def schedule_print_state(global_state):
 
 async def schedule_watch_containers(global_state):
     # TODO: also use events to register
+    docker = Docker()
     try:
-        docker = Docker()
         while True:
             try:
                 await asyncio.ensure_future(dynamic.watch_containers(docker, global_state))
@@ -67,8 +67,8 @@ async def schedule_watch_containers(global_state):
 
 async def schedule_watch_images(global_state):
     # TODO: also use events to register
+    docker = Docker()
     try:
-        docker = Docker()
         while True:
             try:
                 await asyncio.ensure_future(dynamic.watch_images(docker, global_state))
@@ -85,8 +85,8 @@ async def schedule_watch_images(global_state):
 
 async def schedule_watch_volumes(global_state):
     # TODO: also use events to register
+    docker = Docker()
     try:
-        docker = Docker()
         while True:
             try:
                 await asyncio.ensure_future(dynamic.watch_volumes(docker, global_state))
@@ -100,8 +100,8 @@ async def schedule_watch_volumes(global_state):
 
 
 async def schedule_cleanup(global_state: dynamic.GlobalState):
+    docker = Docker()
     try:
-        docker = Docker()
         while True:
             try:
                 while True:
@@ -167,8 +167,8 @@ async def watch_fs_changes(global_state):
 
 
 async def handle_docker_events(global_state: dynamic.GlobalState):
+    docker = Docker()
     try:
-        docker = Docker()
         async for line in read_process_output("docker events"):
             try:
                 await asyncio.ensure_future(
@@ -241,10 +241,6 @@ def serve():
     async def route_cleanup():
         return await generic_response("cleanup")
 
-    @app.route("/volumes")
-    async def route_volumes():
-        return await generic_response("volumes")
-
     @app.route("/rules")
     async def route_rules():
         return await generic_response("rules")
@@ -253,9 +249,49 @@ def serve():
     async def route_messages():
         return await generic_response("messages")
 
+    @app.route("/delete_network")
+    async def route_delete_network():
+        return await generic_response("delete_network")
+
+    @app.route("/inspect_network")
+    async def route_inspect_network():
+        return await generic_response("inspect_network")
+
+    @app.route("/networks")
+    async def route_networks():
+        return await generic_response("networks")
+
+    @app.route("/delete_volume")
+    async def route_delete_volume():
+        return await generic_response("delete_volume")
+
+    @app.route("/inspect_volume")
+    async def route_inspect_volume():
+        return await generic_response("inspect_volume")
+
+    @app.route("/volumes")
+    async def route_volumes():
+        return await generic_response("volumes")
+
+    @app.route("/delete_container")
+    async def route_delete_container():
+        return await generic_response("delete_container")
+
+    @app.route("/inspect_container")
+    async def route_inspect_container():
+        return await generic_response("inspect_container")
+
     @app.route("/containers")
     async def route_containers():
         return await generic_response("containers")
+
+    @app.route("/remove_image_ident")
+    async def route_remove_image_ident():
+        return await generic_response("remove_image_ident")
+
+    @app.route("/inspect_image")
+    async def route_inspect_image():
+        return await generic_response("inspect_image")
 
     @app.route("/images")
     async def route_images():

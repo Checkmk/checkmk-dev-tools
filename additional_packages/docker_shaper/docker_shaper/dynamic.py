@@ -217,7 +217,8 @@ async def handle_docker_event_line(global_state: GlobalState, line: str, docker_
 
     tstamp, object_type, operator, _cmd, uid, params = event_from(line)
 
-    # print(f"{object_type} {operator} {uid}")
+    # print(f"{object_type} {operator} {uid} {params['name']}")
+    # print("XXXX", line)
 
     if (object_type, operator) in {
         ("image", "tag"),
@@ -242,7 +243,8 @@ async def handle_docker_event_line(global_state: GlobalState, line: str, docker_
         }:
             container = await container_from(docker_client, uid)
             assert container
-            register_container(container, global_state)
+            await register_container(container, global_state)
+            return
 
         if operator in {
             "destroy",
@@ -250,10 +252,11 @@ async def handle_docker_event_line(global_state: GlobalState, line: str, docker_
             # not needed, since watch_container() already takes care..
             # unregister_container(uid, global_state)
 
-            if await container_from(docker_client, unique_ident(uid)):
+            if await container_from(docker_client, uid):
                 report(global_state, "error", f"container {uid} still alive after {operator}")
+            return
 
-        elif operator in {
+        if operator in {
             "exec_create:",
             "exec_start:",
             "exec_die",
@@ -269,7 +272,7 @@ async def handle_docker_event_line(global_state: GlobalState, line: str, docker_
         }:
             if (
                 operator not in {"prune", "destroy"}
-                and not await container_from(docker_client, unique_ident(uid))
+                and not await container_from(docker_client, uid)
                 and global_state.containers_crawled
             ):
                 report(
@@ -277,16 +280,30 @@ async def handle_docker_event_line(global_state: GlobalState, line: str, docker_
                     "error",
                     f"operator is {operator} but container {uid} does not exist",
                 )
+            return
         # del global_state.images[ident]
         # del global_state.volumes[ident]
 
     elif object_type == "image":
+        if operator in {
+            "pull",
+        }:
+            await register_image(global_state, await image_from(docker_client, uid))
+            return
+
+        if operator in {
+            "tag",
+        }:
+            await update_image_registration(global_state, docker_client, params["name"])
+            return
+
         if operator in {
             "untag",
             "prune",
             "push",
             "delete",
         }:
+            await update_image_registration(global_state, docker_client, params["name"])
             return
 
     elif object_type == "network":
@@ -304,25 +321,35 @@ async def handle_docker_event_line(global_state: GlobalState, line: str, docker_
             "destroy",
         }:
             return
-    else:
-        log().warning("unknown type/operator %s %s", object_type, operator)
+
+    log().warning("unknown type/operator %s %s", object_type, operator)
 
 
 def is_uid(ident: str) -> bool:
     """
-    sha256:48a3535fe27fea1ac6c2f41547770d081552c54b2391c2dda99e2ad87561a4f2
-    48a3535fe27fea1ac6c2f41547770d081552c54b2391c2dda99e2ad87561a4f2
-    48a3535fe27f
+    >>> is_uid("sha256:48a3535fe27fea1ac6c2f41547770d081552c54b2391c2dda99e2ad87561a4f2")
+    True
+    >>> is_uid("48a3535fe27fea1ac6c2f41547770d081552c54b2391c2dda99e2ad87561a4f2")
+    True
+    >>> is_uid("48a3535fe2")
+    True
+    >>> is_uid("48a3535fe27f")
+    False
     """
     return bool(
         ident.startswith("sha256:")
-        or re.match("[0-9a-f]{64}", ident)
-        or re.match("[0-9a-f]{10}", ident)
+        or re.match("^[0-9a-f]{64}$", ident)
+        or re.match("^[0-9a-f]{10}$", ident)
     )
 
 
 def unique_ident(ident: str) -> str:
-    """Return a short Id if ident is a unique id and leave it as it is otherwise"""
+    """Return a short Id if ident is a unique id and leave it as it is otherwise
+    >>> unique_ident("sha256:48a3535fe27fea1ac6c2f41547770d081552c54b2391c2dda99e2ad87561a4f2")
+    '48a3535fe2'
+    >>> unique_ident("914463316976.dkr.ecr.eu-central-1.amazonaws.com/user_admin_panel:958")
+    '914463316976.dkr.ecr.eu-central-1.amazonaws.com/user_admin_panel:958'
+    """
     return short_id(ident) if is_uid(ident) else ident
 
 
@@ -368,7 +395,10 @@ def expiration_age_from_ident(ident: str, global_state: GlobalState) -> int:
 @impatient
 def expired(ident: str, global_state, now: int, extra_date: int = 0) -> bool:
     if ident not in global_state.last_referenced:
-        log().warn("no reference: %s", ident)
+        log().debug("expired(%s): no reference yet", ident)
+
+    if ident != unique_ident(ident):
+        log().error("expired() called with non-uniform identifier: %s", ident)
 
     # TODO
     last_referenced, expiration_age = global_state.last_referenced.setdefault(
@@ -429,15 +459,19 @@ def label_filter(label_values):
 
 async def dump_global_state(global_state: GlobalState):
     global_state.counter += 1
-    print(f"STATE: {', '.join('='.join(map(str, i)) for i in global_state.intervals.items())}")
+    print(f"STATE: ========================================================")
     print(f"STATE: frame counter: {global_state.counter}")
-    print(f"STATE: images: {len(global_state.images)}")
-    print(f"STATE: containers: {len(global_state.containers)}")
-    print(f"STATE: tag_rules: {len(global_state.tag_rules)}")
-    print(f"STATE: connections: {len(global_state.update_mqueues)}")
+    print(
+        f"STATE: intervals:     {', '.join('='.join(map(str, i)) for i in global_state.intervals.items())}"
+    )
+    print(f"STATE: images:        {len(global_state.images)}")
+    print(f"STATE: containers:    {len(global_state.containers)}")
+    print(f"STATE: tag_rules:     {len(global_state.tag_rules)}")
+    print(f"STATE: connections:   {len(global_state.update_mqueues)}")
     print(
         f"STATE: tasks: {', '.join('/'.join(map(str, i)) for i in Counter(t.get_coro().__name__ for t in asyncio.all_tasks()).items())}"
     )
+    print(f"STATE: ========================================================")
 
 
 class BaseTable(Table):
@@ -476,6 +510,7 @@ class ImageTable(BaseTable):
 
         def dict_from(image):
             now_timestamp = now.timestamp()
+            # todo: no need for date_from
             created_timestamp = date_from(image["created_at"]).timestamp()
 
             def coloured_ident(ident):
@@ -484,14 +519,16 @@ class ImageTable(BaseTable):
                 )
                 return (
                     f"<div class='text-{'danger' if is_expired else 'success'}'>"
-                    f"{ident} ({age_str(now, last_referenced)}/{age_str(expiration_age, 0)})</div>"
+                    f"{ident} ({age_str(now, last_referenced)}/{age_str(expiration_age, 0)}) "
+                    f"<a href=remove_image_ident?ident={ident}>del</a>"
+                    f"</div>"
                 )
 
             return {
                 "short_id": coloured_ident(image["short_id"]),
                 "tags": "".join(map(coloured_ident, image["tags"] or [])),
                 "created_at": date_str(image["created_at"]),
-                "age": age_str(now, date_from(image["created_at"]), fixed=True),
+                "age": age_str(now, image["created_at"], fixed=True),
                 # "last_referenced": last_referenced_str(image["short_id"]),
                 # "class": "text-danger" if would_cleanup_image(image, now, global_state) else "text-success",
             }
@@ -534,12 +571,22 @@ class ContainerTable(BaseTable):
     @staticmethod
     def html_from(endpoint, global_state, sort, reverse):
         now = datetime.now(tz=tz.tzutc())
+
+        def coloured_ident(cnt):
+            cnt_expired = would_cleanup_container(cnt, now.timestamp(), global_state)
+            return (
+                f"<div class='text-{'danger' if cnt_expired else 'success'}'>"
+                f"{cnt['short_id']} "
+                f"<a href=delete_container?ident={cnt['short_id']}>del</a>"
+                f"</div>"
+            )
+
         return ContainerTable(
             endpoint,
             items=sorted(
                 (
                     {
-                        "short_id": cnt["short_id"],
+                        "short_id": coloured_ident(cnt),
                         "name": cnt["name"],
                         "image": short_id(cnt["image"]) if is_uid(cnt["image"]) else cnt["image"],
                         "mem_usage": f"{(mem_stats.get('usage', 0)>>20)}MiB",
@@ -558,9 +605,6 @@ class ContainerTable(BaseTable):
                         "hints": label_filter(cnt["show"]["Config"]["Labels"]),
                         "pid": int(cnt["show"]["State"]["Pid"]),
                         # https://getbootstrap.com/docs/4.0/utilities/colors/
-                        "class": "text-danger"
-                        if would_cleanup_container(cnt, now.timestamp(), global_state)
-                        else "text-success",
                     }
                     for cnt, mem_stats, cpu_stats, last_cpu_stats in (
                         (
@@ -607,7 +651,8 @@ class VolumeTable(BaseTable):
                 )
                 return (
                     f"<div class='text-{'danger' if is_expired else 'success'}'>"
-                    f"{formatter(ident)} ({age_str(now, last_referenced)}/{age_str(expiration_age, 0)})</div>"
+                    f"{formatter(ident)} ({age_str(now, last_referenced)}/{age_str(expiration_age, 0)})"
+                    f"<a href=delete_volume?ident={ident}>del</a></div>"
                 )
 
             return {
@@ -645,6 +690,28 @@ def meta_info(global_state: GlobalState):
         },
         "self_pid": os.getpid(),
     }
+
+
+async def response_remove_image_ident(global_state: GlobalState):
+    docker = Docker()
+    try:
+        await remove_image_ident(global_state, docker, request.args.get("ident"))
+    except Exception as exc:
+        return f"Exception raised in remove_image_ident({request.args.get('ident')}): {exc}"
+    finally:
+        await docker.close()
+    return redirect(request.referrer or url_for("route_dashboard"))
+
+
+async def response_delete_container(global_state: GlobalState):
+    docker = Docker()
+    try:
+        await delete_container(global_state, docker, request.args.get("ident"))
+    except Exception as exc:
+        return f"Exception raised in remove_image_ident({request.args.get('ident')}): {exc}"
+    finally:
+        await docker.close()
+    return redirect(request.referrer or url_for("route_dashboard"))
 
 
 async def response_cleanup(global_state: GlobalState):
@@ -835,7 +902,7 @@ async def watch_container(container, global_state: GlobalState):
     name = "unknown"
     containers = global_state.containers
     try:
-        container_info = containers[unique_ident(container.id)]
+        container_info = containers[container.id]
         container_info["container"] = container
         container_info["short_id"] = (short_id_ := short_id(container.id))
         container_info["show"] = (show := await container.show())
@@ -858,35 +925,61 @@ async def watch_container(container, global_state: GlobalState):
         log().exception("Unhandled exception in watch_container()")
     finally:
         log().info("<< container terminated: %s %s", short_id_, name)
-        unregister_container(container.id, global_state)
+        await unregister_container(container.id, global_state)
+
+
+async def unregister_image(global_state: GlobalState, image):
+    ident = image if isinstance(image, str) else image["Id"]
+    # todo? assert image_from() results None
+    if ident in global_state.images:
+        del global_state.images[ident]
+        await global_state.inform("refresh")
+
+
+async def register_image(global_state: GlobalState, image):
+    global_state.images[image["Id"]] = {
+        "short_id": short_id(image["Id"]),
+        "created_at": date_from(image["Created"]),
+        "tags": [tag for tag in (image["RepoTags"] or []) if tag != "<none>:<none>"],
+        "size": image["Size"],
+        "parent": short_id(image.get("ParentId", "")),
+    }
+    await global_state.inform("refresh")
+
+
+async def update_image_registration(global_state: GlobalState, docker_client, image_id):
+    if image := await image_from(docker_client, image_id):
+        if image["Id"] in global_state.images:
+            global_state.images[image["Id"]]["tags"] = [
+                tag for tag in (image["RepoTags"] or []) if tag != "<none>:<none>"
+            ]
+            await global_state.inform("refresh")
+        else:
+            await register_image(global_state, image)
+    else:
+        await unregister_image(global_state, image_id)
 
 
 async def watch_images(docker_client, global_state: GlobalState) -> None:
     # TODO: also use events to register
     log().info("crawl images..")
     for image in await docker_client.images.list(all=True):
-        # log().debug("  found image %s", image["Id"])
-        if True or image["Id"] not in global_state.images:
-            global_state.images.setdefault(image["Id"], {}).update(
-                {
-                    "short_id": short_id(image["Id"]),
-                    "created_at": image["Created"],
-                    "tags": [tag for tag in (image["RepoTags"] or []) if tag != "<none>:<none>"],
-                    "size": image["Size"],
-                    "parent": short_id(image["ParentId"]),
-                }
-            )
+        if image["Id"] not in global_state.images:
+            log().warning("  found unregistered image %s", image["Id"])
+            await register_image(global_state, image)
 
 
-def register_container(container, global_state: GlobalState) -> None:
-    log().debug(f"register container {container.id}")
-    global_state.containers[unique_ident(container.id)] = {}
+async def register_container(container, global_state: GlobalState) -> None:
+    log().debug("register container %s", container.id)
+    global_state.containers[container.id] = {}
     asyncio.ensure_future(watch_container(container, global_state))
+    await global_state.inform("refresh")
 
 
-def unregister_container(ident, global_state: GlobalState) -> None:
+async def unregister_container(ident, global_state: GlobalState) -> None:
     try:
-        del global_state.containers[unique_ident(ident)]
+        del global_state.containers[ident]
+        await global_state.inform("refresh")
     except KeyError:
         report(global_state, "error", f"tried to remove container {ident} unknown to registry")
 
@@ -895,11 +988,11 @@ async def watch_containers(docker_client, global_state: GlobalState):
     # TODO: also use events to register
     log().debug("crawl containers..")
     for container in await docker_client.containers.list(all=True):
-        if unique_ident(container.id) not in global_state.containers:
+        if container.id not in global_state.containers:
             log().debug("  found container %s", container.id)
             if global_state.containers_crawled:
                 log().error("%s should have been registered automatically before!", container.id)
-            register_container(container, global_state)
+            await register_container(container, global_state)
     global_state.containers_crawled = True
 
 
@@ -907,8 +1000,8 @@ async def watch_volumes(docker_client, global_state: GlobalState):
     # TODO: also use events to register
     log().info("crawl volumes..")
     for volume in (await docker_client.volumes.list())["Volumes"]:
-        log().debug("  found volume %s", volume)
         if volume["Name"] not in global_state.volumes:
+            log().debug("  found volume %s", volume)
             global_state.volumes[volume["Name"]] = volume
 
 
@@ -936,12 +1029,18 @@ def would_cleanup_container(container, now: int, global_state: GlobalState):
 
 def expired_idents(image, now, global_state: GlobalState):
     log().debug("check expiration for image %s, tags=%s", image["short_id"], image["tags"])
+
+    # todo: remove date_from
     created_timestamp = int(date_from(image["created_at"]).timestamp())
+
     for tag in image["tags"] or []:
         if expired(tag, global_state, now, created_timestamp)[0]:
             yield tag
-    if expired(image["short_id"], global_state, now, created_timestamp)[0]:
-        yield image["short_id"]
+
+    # only remove a container directly if there are no tags we could monitor
+    if not image["tags"]:
+        if expired(image["short_id"], global_state, now, created_timestamp)[0]:
+            yield image["short_id"]
 
 
 async def image_from(docker_client: Docker, ident: str) -> bool:
@@ -964,10 +1063,42 @@ async def volume_from(docker_client: Docker, ident: str) -> bool:
     return None
 
 
+async def remove_image_ident(global_state: GlobalState, docker_client: Docker, ident: str) -> None:
+    report(global_state, "info", f"remove image/tag {ident}", None)
+    await docker_client.images.delete(ident)
+    await update_image_registration(global_state, docker_client, ident)
+
+
+async def delete_container(global_state: GlobalState, docker_client: Docker, container_ident):
+    container = (
+        await container_from(docker_client, container_ident)
+        if isinstance(container_ident, str)
+        else container_ident["container"]
+    )
+
+    report(
+        global_state,
+        "warn",
+        f"force removing container {short_id(container.id)}",
+        container,
+    )
+    await container.delete(force=True, v=True)
+
+    # Container should cleanup itself
+
+    if container := await container_from(docker_client, container_ident):
+        report(
+            global_state,
+            "error",
+            f"container {container_ident} still exists after deletion",
+            container,
+        )
+
+
 async def cleanup(docker_client: Docker, global_state):
     log().info("Cleanup!..")
 
-    report(global_state, "info", f"start cleanup", None)
+    report(global_state, "info", "start cleanup", None)
     try:
         now = int(datetime.now().timestamp())
         # we could go through docker_client.containers, too, but to be more consistent, we work
@@ -981,24 +1112,22 @@ async def cleanup(docker_client: Docker, global_state):
             )
         ):
             if not global_state.switches.get("remove_container"):
-                log().info(f"skip removal of container {container_info['short_id']}")
+                log().info("skip removal of container %s", container_info["short_id"])
                 continue
-            report(
-                global_state,
-                "warn",
-                f"force removing container {container_info['short_id']}",
-                container_info["container"],
-            )
-            await container_info["container"].delete(force=True, v=True)
+            try:
+                await delete_container(global_state, docker_client, container_info)
+            except DockerError as exc:
+                log().error(
+                    "Could not delete container %s, error was %s", container_info["short_id"], exc
+                )
 
-        for image_info in global_state.images.values():
+        for image_info in list(global_state.images.values()):
             for ident in expired_idents(image_info, now, global_state):
                 if not global_state.switches.get("remove_images"):
-                    log().info(f"skip removal of image/tag {ident}")
+                    log().info("skip removal of image/tag %s", ident)
                     continue
-                report(global_state, "info", f"remove image/tag {ident}", None)
                 try:
-                    await docker_client.images.delete(ident)
+                    await remove_image_ident(global_state, docker_client, ident)
                 except DockerError as exc:
                     log().error("Could not delete image %s, error was %s", ident, exc)
 
@@ -1006,7 +1135,7 @@ async def cleanup(docker_client: Docker, global_state):
             ident for ident in global_state.images if not await image_from(docker_client, ident)
         ]:
             report(global_state, "warn", f"reference to image {ident} has not been cleaned up")
-            del global_state.images[ident]
+            await unregister_image(global_state, ident)
 
         for ident in [
             ident
@@ -1022,7 +1151,7 @@ async def cleanup(docker_client: Docker, global_state):
             report(global_state, "warn", f"reference to volume {ident} has not been cleaned up")
             del global_state.volumes[ident]
     finally:
-        report(global_state, "info", f"cleanup done", None)
+        report(global_state, "info", "cleanup done", None)
 
 
 def report(global_state, msg_type, message: str, extra=None):
@@ -1040,6 +1169,9 @@ def reconfigure(global_state: GlobalState) -> None:
     """Reacts on changes to the configuration, e.g. applies"""
     for ident, reference in global_state.last_referenced.items():
         reference[1] = expiration_age_from_ident(ident, global_state)
+
+    # todo
+    # global_state.inform("refresh")
 
 
 def setup_introspection():
@@ -1064,7 +1196,6 @@ async def response_control_ws(global_state) -> None:
             reply = await websocket.receive()
             log().debug("reply to '%s': '%s'", message, reply)
     except asyncio.CancelledError:
-        log().debug("got CancelledError")
         raise
     except Exception:
         log().exception("Unhandled exception in control")
