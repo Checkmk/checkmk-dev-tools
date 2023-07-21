@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "checkmk-dev-tools"
-version = "0.1.22"
+version = "0.1.23"
 description = "Checkmk DevOps tools"
 authors = ["Frans Fürst <frans.fuerst@checkmk.com>"]
 repository = "https://github.com/Checkmk/checkmk-dev-tools"
@@ -11,6 +11,7 @@ packages = [
 exclude = ["cmk_dev/out"]
 
 [tool.poetry.scripts]
+cmk-werk = 'cmk_dev.cmk_werk:main'
 cmk-dev = 'cmk_dev.cli:main'
 active-listen = 'cmk_dev.listen_std:main'
 ci-artifacts = 'cmk_dev.ci_artifacts:main'
