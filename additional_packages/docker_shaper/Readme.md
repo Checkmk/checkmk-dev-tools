@@ -36,6 +36,7 @@ Navigate to e.g. http://build-fra-003:5432/
 - [x] Increase/decrease logging via web / signal
 - [x] Link: cleanup (images/containers) now
 - [x] Add volumes list (with recent owners)
+- [ ] Warn about use of unpinned images
 - [ ] Bring in `list_volumes` (volume monitoring)
 - [ ] Containers: show total CPU usage
 - [ ] Containers: list volumes

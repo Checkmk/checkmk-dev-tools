@@ -5,6 +5,7 @@
 import asyncio
 import logging
 import os
+import re
 import shlex
 import signal
 import sys
@@ -29,21 +30,43 @@ def log() -> logging.Logger:
     return logging.getLogger("docker-shaper")
 
 
+def stack_str(depth: int = 0):
+    def stack_fns():
+        stack = list(reversed(traceback.extract_stack(sys._getframe(depth))))
+        for site in stack:
+            if site.filename != stack[0].filename or site.name == "<module>":
+                break
+            yield site.name
+
+    return ">".join(reversed(list(stack_fns())))
+
+
 def setup_logging(level: str = "INFO") -> None:
     """Make logging fun"""
+
+    class CustomLogger(logging.getLoggerClass()):
+        def makeRecord(
+            self, name, level, fn, lno, msg, args, exc_info, func=None, extra=None, sinfo=None
+        ):
+            if extra is None:
+                extra = {}
+            extra["stack"] = stack_str(5)
+            return super().makeRecord(name, level, fn, lno, msg, args, exc_info, func, extra, sinfo)
+
     for lev in LOG_LEVELS:
         logging.addLevelName(getattr(logging, lev), f"{lev[0] * 2}")
 
-    logging.basicConfig(
-        format=(
-            "(%(levelname)s): %(message)s"
-            if os.environ.get("USER") == "root"
-            else "(%(levelname)s) %(asctime)s %(name)s: %(message)s"
-        ),
-        datefmt="%Y-%m-%d %H:%M:%S",
-        level=logging.DEBUG if level == "ALL_DEBUG" else logging.WARNING,
+    logging.setLoggerClass(CustomLogger)
+
+    log().setLevel(getattr(logging, level.split("_")[-1]))
+    ch = logging.StreamHandler()
+    ch.setLevel(getattr(logging, level.split("_")[-1]))
+    ch.setFormatter(
+        logging.Formatter(
+            "(%(levelname)s) %(asctime)s | %(stack)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+        )
     )
-    logging.getLogger().setLevel(getattr(logging, level.split("_")[-1]))
+    log().handlers = [ch]
     logging.getLogger("urllib3.connectionpool").setLevel(logging.INFO)
 
 
@@ -192,8 +215,10 @@ def date_str(date: datetime) -> str:
 
 def date_from(timestamp: Union[int, float, str]) -> Union[None, datetime]:
     """
-    >>> date_from("2023-07-14T15:05:32.174200714+02:00")
-    ?
+    >>> str(date_from("2023-07-14T15:05:32.174200714+02:00"))
+    '2023-07-14 15:05:32+02:00'
+    >>> str(date_from("2023-07-24T21:25:26.89389821+02:00"))
+    '2023-07-24 21:25:26+02:00'
     """
     try:
         if isinstance(timestamp, datetime):
@@ -208,7 +233,7 @@ def date_from(timestamp: Union[int, float, str]) -> Union[None, datetime]:
                 .replace(tzinfo=tz.tzutc())
                 .astimezone(tz.tzlocal())
             )
-        if len(timestamp) == 35:
+        if re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d+\+\d{2}:\d{2}$", timestamp):
             timestamp = timestamp[:19] + timestamp[-6:]
         return datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S%z")
     except OverflowError:

@@ -12,7 +12,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
 from subprocess import CalledProcessError
-from typing import MutableMapping, MutableSequence, Optional, Set, Tuple
+from typing import MutableMapping, MutableSequence, Optional, Sequence, Set, Tuple
 
 from aiodocker import Docker, DockerError
 from dateutil import tz
@@ -104,6 +104,24 @@ class GlobalState:
         for mqueue in self.update_mqueues:
             await mqueue.put(message)
 
+    async def register_image(self, image):
+        assert re.match("^sha256:[0-9a-f]{64}$", image["Id"])
+        self.images[image["Id"]] = {
+            "short_id": short_id(image["Id"]),
+            "created_at": date_from(image["Created"]),
+            "tags": [tag for tag in (image["RepoTags"] or []) if tag != "<none>:<none>"],
+            "size": image["Size"],
+            "parent": image.get("ParentId", ""),
+        }
+        await self.inform("refresh")
+
+    async def unregister_image(self, image):
+        ident = image if isinstance(image, str) else image["Id"]
+        # todo? assert image_from() results None
+        if ident in self.images:
+            del self.images[ident]
+            await self.inform("refresh")
+
 
 def short_id(docker_id: str) -> str:
     """Return the 10-digit variant of a long docker ID
@@ -120,12 +138,13 @@ def short_id(docker_id: str) -> str:
 def id_from(name: str) -> Optional[str]:
     """Looks up name using `docker inspect` and returns a 10 digit Docker ID"""
     with suppress(CalledProcessError):
-        log().debug("resolve %s", name)
-        return short_id(
+        result = short_id(
             name
             if name.startswith("sha256:")
             else process_output(f"docker inspect --format='{{{{.Id}}}}' {name}")
         )
+        log().debug("%s resolves to %s", name, result)
+        return result
     return None
 
 
@@ -227,7 +246,7 @@ async def handle_docker_event_line(global_state: GlobalState, line: str, docker_
     }:
         ident = params.get("image") or params["name"]
         log().info(
-            "docker event %s %s %s ident=%s _uid=%s",
+            "event: %s %s %s ident=%s _uid=%s",
             datetime.fromtimestamp(tstamp),
             object_type,
             operator,
@@ -242,7 +261,8 @@ async def handle_docker_event_line(global_state: GlobalState, line: str, docker_
             "create",
         }:
             container = await container_from(docker_client, uid)
-            assert container
+            if not container:
+                raise RuntimeError(f"Container {uid} does not exist after 'create'")
             await register_container(container, global_state)
             return
 
@@ -288,7 +308,7 @@ async def handle_docker_event_line(global_state: GlobalState, line: str, docker_
         if operator in {
             "pull",
         }:
-            await register_image(global_state, await image_from(docker_client, uid))
+            await global_state.register_image(await image_from(docker_client, uid))
             return
 
         if operator in {
@@ -395,10 +415,10 @@ def expiration_age_from_ident(ident: str, global_state: GlobalState) -> int:
 @impatient
 def expired(ident: str, global_state, now: int, extra_date: int = 0) -> bool:
     if ident not in global_state.last_referenced:
-        log().debug("expired(%s): no reference yet", ident)
+        log().debug("%s: no reference yet", ident)
 
     if ident != unique_ident(ident):
-        log().error("expired() called with non-uniform identifier: %s", ident)
+        log().error("called with non-uniform identifier: %s", ident)
 
     # TODO
     last_referenced, expiration_age = global_state.last_referenced.setdefault(
@@ -458,19 +478,36 @@ def label_filter(label_values):
 
 
 async def dump_global_state(global_state: GlobalState):
+    dep_tree, max_depth = image_dependencies(global_state)
+
+    def handle_branch(branch, depth=0):
+        for image_id, children in list(branch.items()):
+            print(
+                f"{'.' * (depth + 1)}"
+                f" {short_id(image_id)}"
+                f" {'.' * (max_depth - depth + 1)}"
+                f" {len(children)}"
+                f" {global_state.images[image_id]['tags']}"
+            )
+            handle_branch(children, depth + 1)
+
+    # handle_branch(dep_tree)
+
     global_state.counter += 1
     print(f"STATE: ========================================================")
-    print(f"STATE: frame counter: {global_state.counter}")
+    print(f"STATE: frame counter:    {global_state.counter}")
     print(
-        f"STATE: intervals:     {', '.join('='.join(map(str, i)) for i in global_state.intervals.items())}"
+        f"STATE: intervals:        {', '.join('='.join(map(str, i)) for i in global_state.intervals.items())}"
     )
-    print(f"STATE: images:        {len(global_state.images)}")
-    print(f"STATE: containers:    {len(global_state.containers)}")
-    print(f"STATE: tag_rules:     {len(global_state.tag_rules)}")
-    print(f"STATE: connections:   {len(global_state.update_mqueues)}")
+    print(f"STATE: images:           {len(global_state.images)}")
+    print(f"STATE: containers:       {len(global_state.containers)}")
+    print(f"STATE: references:       {len(global_state.last_referenced)}")
+    print(f"STATE: tag_rules:        {len(global_state.tag_rules)}")
+    print(f"STATE: connections:      {len(global_state.update_mqueues)}")
     print(
-        f"STATE: tasks: {', '.join('/'.join(map(str, i)) for i in Counter(t.get_coro().__name__ for t in asyncio.all_tasks()).items())}"
+        f"STATE: tasks:            {', '.join('/'.join(map(str, i)) for i in Counter(t.get_coro().__name__ for t in asyncio.all_tasks()).items())}"
     )
+    print(f"STATE: image tree depth: {max_depth}")
     print(f"STATE: ========================================================")
 
 
@@ -928,25 +965,6 @@ async def watch_container(container, global_state: GlobalState):
         await unregister_container(container.id, global_state)
 
 
-async def unregister_image(global_state: GlobalState, image):
-    ident = image if isinstance(image, str) else image["Id"]
-    # todo? assert image_from() results None
-    if ident in global_state.images:
-        del global_state.images[ident]
-        await global_state.inform("refresh")
-
-
-async def register_image(global_state: GlobalState, image):
-    global_state.images[image["Id"]] = {
-        "short_id": short_id(image["Id"]),
-        "created_at": date_from(image["Created"]),
-        "tags": [tag for tag in (image["RepoTags"] or []) if tag != "<none>:<none>"],
-        "size": image["Size"],
-        "parent": short_id(image.get("ParentId", "")),
-    }
-    await global_state.inform("refresh")
-
-
 async def update_image_registration(global_state: GlobalState, docker_client, image_id):
     if image := await image_from(docker_client, image_id):
         if image["Id"] in global_state.images:
@@ -955,9 +973,9 @@ async def update_image_registration(global_state: GlobalState, docker_client, im
             ]
             await global_state.inform("refresh")
         else:
-            await register_image(global_state, image)
+            await global_state.register_image(image)
     else:
-        await unregister_image(global_state, image_id)
+        await global_state.unregister_image(image_id)
 
 
 async def watch_images(docker_client, global_state: GlobalState) -> None:
@@ -965,8 +983,10 @@ async def watch_images(docker_client, global_state: GlobalState) -> None:
     log().info("crawl images..")
     for image in await docker_client.images.list(all=True):
         if image["Id"] not in global_state.images:
-            log().warning("  found unregistered image %s", image["Id"])
-            await register_image(global_state, image)
+            if global_state.containers_crawled:
+                log().warning("  found unregistered image %s", short_id(image["Id"]))
+            await global_state.register_image(image)
+    global_state.images_crawled = True
 
 
 async def register_container(container, global_state: GlobalState) -> None:
@@ -1027,7 +1047,7 @@ def would_cleanup_container(container, now: int, global_state: GlobalState):
     return False
 
 
-def expired_idents(image, now, global_state: GlobalState):
+def expired_idents(global_state: GlobalState, image, now):
     log().debug("check expiration for image %s, tags=%s", image["short_id"], image["tags"])
 
     # todo: remove date_from
@@ -1086,7 +1106,7 @@ async def delete_container(global_state: GlobalState, docker_client: Docker, con
 
     # Container should cleanup itself
 
-    if container := await container_from(docker_client, container_ident):
+    if container := await container_from(docker_client, container.id):
         report(
             global_state,
             "error",
@@ -1095,7 +1115,32 @@ async def delete_container(global_state: GlobalState, docker_client: Docker, con
         )
 
 
-async def cleanup(docker_client: Docker, global_state):
+def image_dependencies(global_state: GlobalState):
+    """Create a tree of docker image dependencies which can be used to traverse DFT"""
+
+    def ancestors(image_id: str) -> Sequence[str]:
+        parent_id = global_state.images[image_id]["parent"]
+        return (ancestors(parent_id) if parent_id else []) + [image_id]
+
+    result = {}
+    handled: Set[str] = set()
+    max_depth = 0
+
+    for image_id, image in global_state.images.items():
+        if image_id in handled:
+            continue
+        current = result
+        line = ancestors(image_id)
+        max_depth = max(len(line), max_depth)
+        # assert all(len(p) == 10 for p in line)
+        for ancestor in line:
+            handled.add(ancestor)
+            current = current.setdefault(ancestor, {})
+
+    return result, max_depth
+
+
+async def cleanup(docker_client: Docker, global_state: GlobalState) -> None:
     log().info("Cleanup!..")
 
     report(global_state, "info", "start cleanup", None)
@@ -1121,21 +1166,30 @@ async def cleanup(docker_client: Docker, global_state):
                     "Could not delete container %s, error was %s", container_info["short_id"], exc
                 )
 
-        for image_info in list(global_state.images.values()):
-            for ident in expired_idents(image_info, now, global_state):
-                if not global_state.switches.get("remove_images"):
-                    log().info("skip removal of image/tag %s", ident)
-                    continue
-                try:
-                    await remove_image_ident(global_state, docker_client, ident)
-                except DockerError as exc:
-                    log().error("Could not delete image %s, error was %s", ident, exc)
+        dep_tree, _ = image_dependencies(global_state)
+
+        async def handle_branch(branch):
+            for image_id, children in list(branch.items()):
+                if not children:
+                    image_info = global_state.images[image_id]
+                    for ident in expired_idents(global_state, image_info, now):
+                        if not global_state.switches.get("remove_images"):
+                            log().info("skip removal of image/tag %s", ident)
+                            continue
+                        try:
+                            await remove_image_ident(global_state, docker_client, ident)
+                        except DockerError as exc:
+                            log().error("Could not delete image %s, error was %s", ident, exc)
+                else:
+                    await handle_branch(children)
+
+        handle_branch(dep_tree)
 
         for ident in [
             ident for ident in global_state.images if not await image_from(docker_client, ident)
         ]:
             report(global_state, "warn", f"reference to image {ident} has not been cleaned up")
-            await unregister_image(global_state, ident)
+            await global_state.unregister_image(ident)
 
         for ident in [
             ident
@@ -1172,6 +1226,12 @@ def reconfigure(global_state: GlobalState) -> None:
 
     # todo
     # global_state.inform("refresh")
+    import importlib
+
+    from docker_shaper import utils
+
+    importlib.reload(utils)
+    utils.setup_logging()
 
 
 def setup_introspection():

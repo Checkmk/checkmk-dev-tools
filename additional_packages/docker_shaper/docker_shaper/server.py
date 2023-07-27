@@ -110,7 +110,7 @@ async def schedule_cleanup(global_state: dynamic.GlobalState):
                     ) and global_state.cleanup_fuse > interval:
                         global_state.cleanup_fuse = 0
                         break
-                    if (interval - global_state.cleanup_fuse) % 10 == 0:
+                    if (interval - global_state.cleanup_fuse) % 60 == 0:
                         log().debug(
                             "cleanup: %s seconds to go.." % (interval - global_state.cleanup_fuse)
                         )
@@ -174,6 +174,8 @@ async def handle_docker_events(global_state: dynamic.GlobalState):
                 await asyncio.ensure_future(
                     dynamic.handle_docker_event_line(global_state, line, docker)
                 )
+            except RuntimeError as exc:
+                log().error("Caught exeption when handling docker event line %s: %s", line, exc)
             except Exception as exc:
                 log().exception("Unhandled exception caught!")
                 dynamic.report(
