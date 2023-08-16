@@ -167,23 +167,28 @@ async def watch_fs_changes(global_state):
 
 
 async def handle_docker_events(global_state: dynamic.GlobalState):
-    docker = Docker()
-    try:
-        async for line in read_process_output("docker events"):
-            try:
-                await asyncio.ensure_future(
-                    dynamic.handle_docker_event_line(global_state, line, docker)
-                )
-            except RuntimeError as exc:
-                log().error("Caught exeption when handling docker event line %s: %s", line, exc)
-            except Exception as exc:
-                log().exception("Unhandled exception caught!")
-                dynamic.report(
-                    global_state, "error", f"exception in docker event watcher: {exc}", exc
-                )
-                await asyncio.sleep(5)
-    finally:
-        await docker.close()
+    while True:
+        docker = Docker()
+        try:
+            async for line in read_process_output("docker events"):
+                try:
+                    await asyncio.ensure_future(
+                        dynamic.handle_docker_event_line(global_state, line, docker)
+                    )
+                except RuntimeError as exc:
+                    log().error("Caught exeption when handling docker event line %s: %s", line, exc)
+                except Exception as exc:
+                    log().exception("Unhandled exception caught!")
+                    dynamic.report(
+                        global_state, "error", f"exception in docker event watcher: {exc}", exc
+                    )
+                    await asyncio.sleep(5)
+        except Exception as exc:
+            log().exception("Exception caught executing 'docker events'")
+            dynamic.report(global_state, "error", f"Exception in 'docker events': {exc}", exc)
+        finally:
+            dynamic.report(global_state, "error", "Docker event watcher has been terminated")
+            await docker.close()
 
 
 def no_serve():

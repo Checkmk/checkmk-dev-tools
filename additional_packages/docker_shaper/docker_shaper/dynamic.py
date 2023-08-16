@@ -291,7 +291,7 @@ async def handle_docker_event_line(global_state: GlobalState, line: str, docker_
             "archive-path",
         }:
             if (
-                operator not in {"prune", "destroy"}
+                operator not in {"prune", "destroy", "die", "stop"}
                 and not await container_from(docker_client, uid)
                 and global_state.containers_crawled
             ):
@@ -305,6 +305,7 @@ async def handle_docker_event_line(global_state: GlobalState, line: str, docker_
         # del global_state.volumes[ident]
 
     elif object_type == "image":
+        # print("XXXX image", operator, line)
         if operator in {
             "pull",
         }:
@@ -494,21 +495,64 @@ async def dump_global_state(global_state: GlobalState):
     # handle_branch(dep_tree)
 
     global_state.counter += 1
-    print(f"STATE: ========================================================")
+    coro_name_count = Counter(
+        name
+        for t in asyncio.all_tasks()
+        if (name := t.get_coro().__name__)
+        not in {
+            "handle_lifespan",
+            "get",
+            "serve",
+            "wait",
+            "_connect_pipes",
+            "_server_callback",
+            "_handle",
+            "_run_idle",
+            "raise_shutdown",
+            "handle_messages",
+            "handle_websocket",
+            "watch_container",
+            "watch_containers",
+            "watch_images",
+            "watch_volumes",
+        }
+    )
+
+    expectd_coro_names = {
+        "handle_docker_events",
+        "dump_global_state",
+        "watch_fs_changes",
+        "schedule_watch_images",
+        "self_destroy",
+        "schedule_cleanup",
+        "schedule_print_state",
+        "schedule_watch_volumes",
+        "schedule_watch_containers",
+    }
+
+    print()
+    print(f"STATE: ====[ {global_state.hostname } ]===============================================")
     print(f"STATE: frame counter:    {global_state.counter}")
     print(
-        f"STATE: intervals:        {', '.join('='.join(map(str, i)) for i in global_state.intervals.items())}"
+        f"STATE: intervals:        "
+        f"{', '.join('='.join(map(str, i)) for i in global_state.intervals.items())}"
     )
     print(f"STATE: images:           {len(global_state.images)}")
+    print(f"STATE: image tree depth: {max_depth}")
     print(f"STATE: containers:       {len(global_state.containers)}")
     print(f"STATE: references:       {len(global_state.last_referenced)}")
     print(f"STATE: tag_rules:        {len(global_state.tag_rules)}")
     print(f"STATE: connections:      {len(global_state.update_mqueues)}")
+    # print(
+    # f"STATE: tasks:            {', '.join('/'.join(map(str, i)) for i in coro_name_count.items())}"
+    # )
     print(
-        f"STATE: tasks:            {', '.join('/'.join(map(str, i)) for i in Counter(t.get_coro().__name__ for t in asyncio.all_tasks()).items())}"
+        f"STATE: missing / unknown tasks:"
+        f" {(expectd_coro_names - coro_name_count.keys()) or 'none'}"
+        f" {(coro_name_count.keys() - expectd_coro_names) or 'none'}"
     )
-    print(f"STATE: image tree depth: {max_depth}")
-    print(f"STATE: ========================================================")
+    print(f"STATE: ====================================================================")
+    print()
 
 
 class BaseTable(Table):
@@ -983,7 +1027,7 @@ async def watch_images(docker_client, global_state: GlobalState) -> None:
     log().info("crawl images..")
     for image in await docker_client.images.list(all=True):
         if image["Id"] not in global_state.images:
-            if global_state.containers_crawled:
+            if global_state.images_crawled:
                 log().warning("  found unregistered image %s", short_id(image["Id"]))
             await global_state.register_image(image)
     global_state.images_crawled = True
@@ -1065,12 +1109,14 @@ def expired_idents(global_state: GlobalState, image, now):
 
 async def image_from(docker_client: Docker, ident: str) -> bool:
     with suppress(DockerError):
+        # todo: this can block if client is stuck
         return await docker_client.images.get(ident)
     return None
 
 
 async def container_from(docker_client: Docker, ident: str) -> bool:
     with suppress(DockerError):
+        # todo: this can block if client is stuck
         return await docker_client.containers.get(ident)
     return None
 
@@ -1126,13 +1172,16 @@ def image_dependencies(global_state: GlobalState):
     handled: Set[str] = set()
     max_depth = 0
 
-    for image_id, image in global_state.images.items():
+    for image_id in global_state.images:
         if image_id in handled:
             continue
         current = result
-        line = ancestors(image_id)
+        try:
+            line = ancestors(image_id)
+        except KeyError as exc:
+            log().error("one parent image of %s is gone: %s", image_id, exc)
+            continue
         max_depth = max(len(line), max_depth)
-        # assert all(len(p) == 10 for p in line)
         for ancestor in line:
             handled.add(ancestor)
             current = current.setdefault(ancestor, {})
@@ -1146,10 +1195,8 @@ async def cleanup(docker_client: Docker, global_state: GlobalState) -> None:
     report(global_state, "info", "start cleanup", None)
     try:
         now = int(datetime.now().timestamp())
-        # we could go through docker_client.containers, too, but to be more consistent, we work
-        # on one structure only
-        # also, we have to create a list we can operate on, in order to not modify the structure, we're
-        # iterating
+        # we could go through docker_client.containers/images/volumes, too, but to be more
+        # consistent, we operate on one structure only.
         for container_info in list(
             filter(
                 lambda cnt: would_cleanup_container(cnt, now, global_state),
@@ -1170,8 +1217,11 @@ async def cleanup(docker_client: Docker, global_state: GlobalState) -> None:
 
         async def handle_branch(branch):
             for image_id, children in list(branch.items()):
-                if not children:
-                    image_info = global_state.images[image_id]
+                if not (image_info := global_state.images.get(image_id)):
+                    continue
+                if children:
+                    await handle_branch(children)
+                else:
                     for ident in expired_idents(global_state, image_info, now):
                         if not global_state.switches.get("remove_images"):
                             log().info("skip removal of image/tag %s", ident)
@@ -1180,30 +1230,25 @@ async def cleanup(docker_client: Docker, global_state: GlobalState) -> None:
                             await remove_image_ident(global_state, docker_client, ident)
                         except DockerError as exc:
                             log().error("Could not delete image %s, error was %s", ident, exc)
-                else:
-                    await handle_branch(children)
 
-        handle_branch(dep_tree)
+        await handle_branch(dep_tree)
 
-        for ident in [
-            ident for ident in global_state.images if not await image_from(docker_client, ident)
-        ]:
-            report(global_state, "warn", f"reference to image {ident} has not been cleaned up")
-            await global_state.unregister_image(ident)
+        for ident in list(global_state.images):
+            if not await image_from(docker_client, ident):
+                report(global_state, "warn", f"reference to image {ident} has not been cleaned up")
+                await global_state.unregister_image(ident)
 
-        for ident in [
-            ident
-            for ident in global_state.containers
-            if not await container_from(docker_client, ident)
-        ]:
-            report(global_state, "warn", f"reference to container {ident} has not been cleaned up")
-            del global_state.containers[ident]
+        for ident in list(global_state.containers):
+            if not await container_from(docker_client, ident):
+                report(
+                    global_state, "warn", f"reference to container {ident} has not been cleaned up"
+                )
+                del global_state.containers[ident]
 
-        for ident in [
-            ident for ident in global_state.volumes if not await volume_from(docker_client, ident)
-        ]:
-            report(global_state, "warn", f"reference to volume {ident} has not been cleaned up")
-            del global_state.volumes[ident]
+        for ident in list(global_state.volumes):
+            if not await volume_from(docker_client, ident):
+                report(global_state, "warn", f"reference to volume {ident} has not been cleaned up")
+                del global_state.volumes[ident]
     finally:
         report(global_state, "info", "cleanup done", None)
 

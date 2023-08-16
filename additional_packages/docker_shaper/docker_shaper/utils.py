@@ -69,6 +69,18 @@ def setup_logging(level: str = "INFO") -> None:
     log().handlers = [ch]
     logging.getLogger("urllib3.connectionpool").setLevel(logging.INFO)
 
+    # https://stackoverflow.com/questions/76788727/how-can-i-change-the-debug-level-and-format-for-the-quart-i-e-hypercorn-logge
+    # https://pgjones.gitlab.io/hypercorn/how_to_guides/logging.html#how-to-log
+    # https://www.phind.com/agent?cache=clkqhh48y001smg0832tvq1rl
+
+    # from quart.logging import default_handler
+    # logging.getLogger('quart.app').removeHandler(default_handler)
+    # logger = logging.getLogger("hypercorn.error")
+    # logger.removeHandler(default_handler)
+    # logger.addHandler(ch)
+    # logger.setLevel(logging.WARNING)
+    # logger.propagate = False
+
 
 def impatient(func):
     """Tells us, when a function takes suspiciously long"""
@@ -292,6 +304,7 @@ def print_stacktrace_on_signal(sig, frame):
         print_stack_frames(sys.stderr)
         with open(Path("~/.docker_shaper/traceback.log").expanduser(), "w") as trace_file:
             print_stack_frames(trace_file)
+            print(f"traceback also written to {trace_file}", file=sys.stderr)
     except Exception:
         log().exception("Could not fully write application stack trace")
 
