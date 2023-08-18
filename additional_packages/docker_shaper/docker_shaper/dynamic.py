@@ -15,6 +15,7 @@ from subprocess import CalledProcessError
 from typing import MutableMapping, MutableSequence, Optional, Sequence, Set, Tuple
 
 from aiodocker import Docker, DockerError
+from aiodocker.volumes import DockerVolume
 from dateutil import tz
 from flask_table import Col, Table
 from quart import redirect, render_template, request, url_for, websocket
@@ -778,6 +779,7 @@ async def response_remove_image_ident(global_state: GlobalState):
     try:
         await remove_image_ident(global_state, docker, request.args.get("ident"))
     except Exception as exc:
+        log().exception("Exception raised in remove_image_ident(%s)", request.args.get('ident'))
         return f"Exception raised in remove_image_ident({request.args.get('ident')}): {exc}"
     finally:
         await docker.close()
@@ -789,7 +791,8 @@ async def response_delete_container(global_state: GlobalState):
     try:
         await delete_container(global_state, docker, request.args.get("ident"))
     except Exception as exc:
-        return f"Exception raised in remove_image_ident({request.args.get('ident')}): {exc}"
+        log().exception("Exception raised in delete_container(%s)", request.args.get('ident'))
+        return f"Exception raised in delete_container({request.args.get('ident')}): {exc}"
     finally:
         await docker.close()
     return redirect(request.referrer or url_for("route_dashboard"))
@@ -1249,6 +1252,17 @@ async def cleanup(docker_client: Docker, global_state: GlobalState) -> None:
             if not await volume_from(docker_client, ident):
                 report(global_state, "warn", f"reference to volume {ident} has not been cleaned up")
                 del global_state.volumes[ident]
+
+        log().info("Prune docker volumes")
+        for volume in (await docker_client.volumes.list())["Volumes"]:
+            log().info("try to delete %s..")
+            try:
+                await DockerVolume(docker_client, volume['Name']).delete()
+                report(global_state, "warn", f"volume {volume['Name']} has not been removed automatically")
+            except DockerError as exc:
+                log().info("not possible: %s", exc)
+        # TODO: react on disapearing volumes
+
     finally:
         report(global_state, "info", "cleanup done", None)
 
