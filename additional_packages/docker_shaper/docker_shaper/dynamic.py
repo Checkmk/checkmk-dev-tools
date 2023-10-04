@@ -327,7 +327,9 @@ async def handle_docker_event_line(global_state: GlobalState, line: str, docker_
             "push",
             "delete",
         }:
-            await update_image_registration(global_state, docker_client, params["name"])
+            # quick fix -remove me
+            if "name" in params:
+                await update_image_registration(global_state, docker_client, params["name"])
             return
 
     elif object_type == "network":
@@ -675,7 +677,7 @@ class ContainerTable(BaseTable):
                         "image": short_id(cnt["image"]) if is_uid(cnt["image"]) else cnt["image"],
                         "mem_usage": f"{(mem_stats.get('usage', 0)>>20)}MiB",
                         "cpu": f"{int(cpu_perc(cpu_stats, last_cpu_stats) * 1000) / 10}%",
-                        "cmd": " ".join(cnt["show"]["Config"]["Cmd"])[:100],
+                        "cmd": "--" if not (cmd := cnt["show"]["Config"]["Cmd"]) else " ".join(cmd)[:100],
                         "job": jobname_from(
                             cnt["show"]["HostConfig"]["Binds"]
                             or list(cnt["show"]["Config"]["Volumes"] or [])
