@@ -9,7 +9,7 @@ import time
 from argparse import ArgumentParser
 from argparse import Namespace as Args
 from configparser import ConfigParser
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from datetime import datetime
 from itertools import chain
@@ -417,7 +417,8 @@ def download_artifacts(
     if not no_remove_others:
         for path in existing_files - set(downloaded_artifacts) - set(skipped_artifacts):
             log().debug("Remove superfluous file %s", path)
-            (out_dir / path).unlink()
+            with suppress(FileNotFoundError):
+                (out_dir / path).unlink()
 
     return downloaded_artifacts, skipped_artifacts
 
@@ -545,7 +546,14 @@ def meets_constraints(
 
 def build_id_from_queue_item(client: Jenkins, queue_id: QueueId) -> BuildId:
     """Waits for queue item with given @queue_id to be scheduled and returns Build instance"""
-    log().info("waiting for queue item %s to be scheduled", queue_id)
+    queue_item = client.get_queue_item(queue_id)
+    log().info(
+        "waiting for queue item %s to be scheduled (%s%s)",
+        queue_id,
+        queue_item["task"]["url"],
+        queue_item["url"],
+    )
+
     while True:
         queue_item = client.get_queue_item(queue_id)
         if executable := queue_item.get("executable"):
@@ -625,7 +633,7 @@ def _fn_fetch(args: Args) -> None:
         print(artifact)
 
 
-def fetch_job_artifacts(
+def fetch_job_artifacts(  # pylint: disable=too-many-arguments
     job_full_path: str,
     *,
     credentials: Union[None, Mapping[str, str]] = None,
@@ -645,6 +653,11 @@ def fetch_job_artifacts(
     # pylint: disable=too-many-locals
 
     used_base_dir = base_dir or Path(".")
+
+    full_out_dir = used_base_dir / (out_dir or "")
+    if full_out_dir.exists() and not full_out_dir.is_dir():
+        raise Fatal(f"Output directory path '{full_out_dir}' exists but is not a directory!")
+
     creds = extract_credentials(credentials)
     with jenkins_client(creds["url"], creds["username"], creds["password"]) as client:
         if not str((job_info := client.get_job_info(job_full_path))["_class"]).endswith(
@@ -764,7 +777,6 @@ def fetch_job_artifacts(
         if not build_candidate.artifacts:
             raise Fatal("Job has no artifacts!")
 
-        full_out_dir = used_base_dir / (out_dir or "")
         downloaded_artifacts, skipped_artifacts = download_artifacts(
             client,
             build_candidate,
