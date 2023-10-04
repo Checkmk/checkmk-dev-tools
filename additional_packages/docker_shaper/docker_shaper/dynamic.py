@@ -6,7 +6,9 @@ import asyncio
 import logging
 import os
 import re
+import sys
 import time
+import traceback
 from collections import Counter
 from contextlib import suppress
 from dataclasses import dataclass
@@ -779,7 +781,7 @@ async def response_remove_image_ident(global_state: GlobalState):
     try:
         await remove_image_ident(global_state, docker, request.args.get("ident"))
     except Exception as exc:
-        log().exception("Exception raised in remove_image_ident(%s)", request.args.get('ident'))
+        log().exception("Exception raised in remove_image_ident(%s)", request.args.get("ident"))
         return f"Exception raised in remove_image_ident({request.args.get('ident')}): {exc}"
     finally:
         await docker.close()
@@ -791,7 +793,7 @@ async def response_delete_container(global_state: GlobalState):
     try:
         await delete_container(global_state, docker, request.args.get("ident"))
     except Exception as exc:
-        log().exception("Exception raised in delete_container(%s)", request.args.get('ident'))
+        log().exception("Exception raised in delete_container(%s)", request.args.get("ident"))
         return f"Exception raised in delete_container({request.args.get('ident')}): {exc}"
     finally:
         await docker.close()
@@ -868,7 +870,9 @@ async def response_dashboard(global_state):
             sort=request.args.get("sort_key_images", "created_at"),
             reverse=request.args.get("sort_direction_images", "asc") == "desc",
         ),
-        messages=[(date_str(m[0]), m[1], m[2]) for m in global_state.messages],
+        messages=[
+            (date_str(m[0]), m[1], m[2].replace("\n", "<br>|")) for m in global_state.messages
+        ],
     )
 
 
@@ -1257,8 +1261,12 @@ async def cleanup(docker_client: Docker, global_state: GlobalState) -> None:
         for volume in (await docker_client.volumes.list())["Volumes"]:
             log().info("try to delete %s..")
             try:
-                await DockerVolume(docker_client, volume['Name']).delete()
-                report(global_state, "warn", f"volume {volume['Name']} has not been removed automatically")
+                await DockerVolume(docker_client, volume["Name"]).delete()
+                report(
+                    global_state,
+                    "warn",
+                    f"volume {volume['Name']} has not been removed automatically",
+                )
             except DockerError as exc:
                 log().info("not possible: %s", exc)
         # TODO: react on disapearing volumes
@@ -1267,12 +1275,26 @@ async def cleanup(docker_client: Docker, global_state: GlobalState) -> None:
         report(global_state, "info", "cleanup done", None)
 
 
-def report(global_state, msg_type, message: str, extra=None):
+def report(global_state, msg_type: None | str, message: None | str = None, extra=None):
     """Report an incident - maybe good or bad"""
     # TODO: cleanup
     # TODO: persist
-    log().info(message)
-    global_state.messages.insert(0, (datetime.now().timestamp(), msg_type, message, str(extra)))
+    if sys.exc_info()[1]:
+        log().exception(message)
+        traceback_str = traceback.format_exc().strip("\n")
+        global_state.messages.insert(
+            0,
+            (
+                datetime.now().timestamp(),
+                msg_type or "exception",
+                "\n".join((message, traceback_str)) if message else traceback_str,
+                None,
+            ),
+        )
+    else:
+        global_state.messages.insert(
+            0, (datetime.now().timestamp(), msg_type or "debug", message or "--", str(extra))
+        )
     global_state.messages = global_state.messages[
         : global_state.additional_values.get("message_history_size", 100)
     ]

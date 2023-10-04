@@ -28,11 +28,8 @@ async def schedule_print_container_stats(global_state):
         try:
             await asyncio.ensure_future(dynamic.print_container_stats(global_state))
             await asyncio.sleep(global_state.intervals.get("container_stats", 1))
-        except Exception as exc:
-            log().exception("Unhandled exception caught!")
-            dynamic.report(
-                global_state, "error", f"exception in container_stats scheduler: {exc}", exc
-            )
+        except Exception:
+            dynamic.report(global_state)
             await asyncio.sleep(5)
 
 
@@ -41,9 +38,8 @@ async def schedule_print_state(global_state):
         try:
             await asyncio.ensure_future(dynamic.dump_global_state(global_state))
             await asyncio.sleep(global_state.intervals.get("state", 1))
-        except Exception as exc:
-            log().exception("Unhandled exception caught!")
-            dynamic.report(global_state, "error", f"exception in state scheduler: {exc}", exc)
+        except Exception:
+            dynamic.report(global_state)
             await asyncio.sleep(5)
 
 
@@ -55,11 +51,8 @@ async def schedule_watch_containers(global_state):
             try:
                 await asyncio.ensure_future(dynamic.watch_containers(docker, global_state))
                 await asyncio.sleep(global_state.intervals.get("container_update", 1))
-            except Exception as exc:
-                log().exception("Unhandled exception caught!")
-                dynamic.report(
-                    global_state, "error", f"exception in container_update scheduler: {exc}", exc
-                )
+            except Exception:
+                dynamic.report(global_state)
                 await asyncio.sleep(5)
     finally:
         await docker.close()
@@ -73,11 +66,8 @@ async def schedule_watch_images(global_state):
             try:
                 await asyncio.ensure_future(dynamic.watch_images(docker, global_state))
                 await asyncio.sleep(global_state.intervals.get("image_update", 1))
-            except Exception as exc:
-                log().exception("Unhandled exception caught!")
-                dynamic.report(
-                    global_state, "error", f"exception in image_update scheduler: {exc}", exc
-                )
+            except Exception:
+                dynamic.report(global_state)
                 await asyncio.sleep(5)
     finally:
         await docker.close()
@@ -91,9 +81,8 @@ async def schedule_watch_volumes(global_state):
             try:
                 await asyncio.ensure_future(dynamic.watch_volumes(docker, global_state))
                 await asyncio.sleep(global_state.intervals.get("volumes_update", 1))
-            except Exception as exc:
-                log().exception("Unhandled exception in volumes_update()!")
-                dynamic.report(global_state, "error", f"exception in volumes_update(): {exc}", exc)
+            except Exception:
+                dynamic.report(global_state)
                 await asyncio.sleep(5)
     finally:
         await docker.close()
@@ -117,9 +106,8 @@ async def schedule_cleanup(global_state: dynamic.GlobalState):
                     await asyncio.sleep(1)
                     global_state.cleanup_fuse += 1
                 await asyncio.ensure_future(dynamic.cleanup(docker, global_state))
-            except Exception as exc:
-                log().exception("Unhandled exception caught in cleanup()!")
-                dynamic.report(global_state, "error", f"exception in cleanup scheduler: {exc}", exc)
+            except Exception:
+                dynamic.report(global_state)
                 await asyncio.sleep(5)
     finally:
         await docker.close()
@@ -159,9 +147,8 @@ async def watch_fs_changes(global_state):
                         importlib.reload(module)
                         dynamic.setup_introspection()
 
-        except Exception as exc:
-            log().exception("Reloading dynamic part failed!")
-            dynamic.report(global_state, "error", f"exception in module reload: {exc}", exc)
+        except Exception:
+            dynamic.report(global_state)
             await asyncio.sleep(5)
     assert False
 
@@ -177,15 +164,11 @@ async def handle_docker_events(global_state: dynamic.GlobalState):
                     )
                 except RuntimeError as exc:
                     log().error("Caught exeption when handling docker event line %s: %s", line, exc)
-                except Exception as exc:
-                    log().exception("Unhandled exception caught!")
-                    dynamic.report(
-                        global_state, "error", f"exception in docker event watcher: {exc}", exc
-                    )
+                except Exception:
+                    dynamic.report(global_state)
                     await asyncio.sleep(5)
         except Exception as exc:
-            log().exception("Exception caught executing 'docker events'")
-            dynamic.report(global_state, "error", f"Exception in 'docker events': {exc}", exc)
+            dynamic.report(global_state)
         finally:
             dynamic.report(global_state, "error", "Docker event watcher has been terminated")
             await docker.close()
@@ -221,9 +204,8 @@ def serve():
             return f"Not known: {endpoint}"
         try:
             return await getattr(dynamic, f"response_{endpoint}")(global_state)
-        except Exception as exc:
-            log().exception("Unhandled exception in response_%s()", endpoint)
-            dynamic.report(global_state, "error", f"exception in response_{endpoint}: {exc}", exc)
+        except Exception:
+            dynamic.report(global_state, "exception", f"exception in response_{endpoint}:")
             raise
 
     async def self_destroy():

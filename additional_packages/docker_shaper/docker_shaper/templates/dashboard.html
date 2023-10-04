@@ -47,7 +47,7 @@
   <table class="table table-striped">
   {% for msg in messages %}
     <tr>
-      <td>{{msg[0]}}</td><td>{{msg[1]}}</td><td>{{msg[2]}}</td>
+      <td>{{msg[0]}}</td><td>{{msg[1]}}</td><td><tt>{{msg[2]|safe}}</tt></td>
     </tr>
   {% endfor %}
   </table>
