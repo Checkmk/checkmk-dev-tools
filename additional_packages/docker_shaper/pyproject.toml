@@ -15,27 +15,27 @@ packages = [
 docker-shaper = 'docker_shaper.cli:main'
 
 [tool.poetry.dependencies]
-python = ">=3.10.12,<4.0.0"
-aiodocker = "^0.21.0"
-asyncinotify = "^4.0.1"
-quart = "^0.18.4"
-flask-table = "^0.5.0"
+python = "^3.10.4"
+aiodocker = "^0"
+asyncinotify = "^4"
+quart = "^0"
+flask-table = "^0"
 python-dateutil = "^2.8.2"
 
 [tool.poetry.group.dev.dependencies]
-black = "^22.6.0"
-isort = "^5.10.1"
-flake8 = "^4.0.1"
-pytest = "^7.1.2"
-pytest-cov = "^3.0.0"
-mypy = "^1.2"
-pylint = "^2.15.3"
-ipython = "^8.8.0"
-types-pyyaml = "^6.0.12.6"
-twine = "^4.0.2"
-yamllint = "^1.29.0"
-pylint-per-file-ignores = "^1.2.1"
-types-python-dateutil = "^2.8.19.13"
+black = "*"
+isort = "*"
+flake8 = "*"
+pytest = "*"
+pytest-cov = "*"
+mypy = "^1.5"
+pylint = "*"
+ipython = "*"
+types-pyyaml = "*"
+twine = "*"
+yamllint = "*"
+pylint-per-file-ignores = "*"
+types-python-dateutil = "*"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
