@@ -2,7 +2,6 @@
 
 """Provide information about CI artifacts and make them available locally"""
 
-import hashlib
 import logging
 import os
 import sys
@@ -10,7 +9,7 @@ import time
 from argparse import ArgumentParser
 from argparse import Namespace as Args
 from configparser import ConfigParser
-from contextlib import contextmanager, suppress
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from itertools import chain
@@ -19,6 +18,8 @@ from subprocess import check_output
 from typing import Iterator, Mapping, Sequence, Tuple, Union, cast
 
 from jenkins import Jenkins
+
+from cmk_dev.utils import cwd, md5from, setup_logging
 
 # pylint: disable=too-many-instance-attributes
 # pylint: disable=fixme
@@ -322,28 +323,6 @@ def _fn_info(args: Args) -> None:
                 print(f"  - {build_nr}: {build}")
         else:
             raise Fatal(f"Don't know class type {class_name}")
-
-
-def md5from(filepath: Path) -> Union[str, None]:
-    """Returns an MD5 sum from contents of file provided"""
-    with suppress(FileNotFoundError):
-        with open(filepath, "rb") as input_file:
-            file_hash = hashlib.md5()
-            while chunk := input_file.read(1 << 16):
-                file_hash.update(chunk)
-            return file_hash.hexdigest()
-    return None
-
-
-@contextmanager
-def cwd(path: Path) -> Iterator[None]:
-    """Changes working directory and returns to previous on exit."""
-    prev_cwd = Path.cwd()
-    os.chdir(path)
-    try:
-        yield
-    finally:
-        os.chdir(prev_cwd)
 
 
 def git_commit_id(git_dir: Path, path: Union[None, Path, str] = None) -> str:
@@ -806,12 +785,8 @@ def main() -> None:
     """Entry point for everything else"""
     try:
         args = parse_args()
-        logging.basicConfig(
-            format="%(name)s %(levelname)s: %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-            level=logging.DEBUG if args.log_level == "ALL_DEBUG" else logging.WARNING,
-        )
-        log().setLevel(getattr(logging, args.log_level.split("_")[-1]))
+        setup_logging(log(), args.log_level)
+
         log().debug("Parsed args: %s", args)
         args.func(args)
     except Fatal as exc:
