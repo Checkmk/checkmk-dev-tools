@@ -142,9 +142,9 @@ def parse_args() -> Args:
     return parser.parse_args()
 
 
-def logger() -> logging.Logger:
+def log() -> logging.Logger:
     """Convenience function retrieves 'our' logger"""
-    return logging.getLogger("ci-artifacts")
+    return logging.getLogger("cmk-dev.cia")
 
 
 def split_params(string: str) -> Mapping[str, str]:
@@ -270,7 +270,7 @@ def extract_credentials(credentials: Union[None, Mapping[str, str]]) -> Mapping[
             "password": credentials.get("password")
             or os.environ[credentials.get("password_env", "")],
         }
-    logger().debug(
+    log().debug(
         "Credentials haven't been (fully) provided via --credentials, trying JJB config instead"
     )
     jjb_config = ConfigParser()
@@ -295,7 +295,7 @@ def jenkins_client(
     )
     whoami = client.get_whoami()
     if not whoami["id"] == username:
-        logger().warning("client.get_whoami() does not match jenkins_config['user']")
+        log().warning("client.get_whoami() does not match jenkins_config['user']")
 
     yield client
 
@@ -409,25 +409,25 @@ def download_artifacts(
     for artifact in build.artifacts:
         existing_files -= {artifact}
         fp_hash = fingerprints[artifact.split("/")[-1]]
-        logger().debug("handle artifact: %s (md5: %s)", artifact, fp_hash)
+        log().debug("handle artifact: %s (md5: %s)", artifact, fp_hash)
         artifact_filename = out_dir / artifact
         local_hash = md5from(artifact_filename)
 
         if local_hash == fp_hash:
-            logger().debug("file is already available locally: %s (md5: %s)", artifact, fp_hash)
+            log().debug("file is already available locally: %s (md5: %s)", artifact, fp_hash)
             skipped_artifacts.append(artifact)
             continue
 
         if local_hash and local_hash != fp_hash:
-            logger().warning(
-                "file exists locally but hashes differ: %s %s != %s",
+            log().debug(
+                "update locally existing file %s - hashes differ (%s != %s)",
                 artifact,
                 local_hash,
                 fp_hash,
             )
 
         with client._session.get(f"{build.url}artifact/{artifact}", stream=True) as reply:
-            logger().debug("download: %s", artifact)
+            log().debug("download: %s", artifact)
             reply.raise_for_status()
             artifact_filename.parent.mkdir(parents=True, exist_ok=True)
             with open(artifact_filename, "wb") as out_file:
@@ -437,7 +437,7 @@ def download_artifacts(
 
     if not no_remove_others:
         for path in existing_files - set(downloaded_artifacts) - set(skipped_artifacts):
-            logger().debug("Remove superfluous file %s", path)
+            log().debug("Remove superfluous file %s", path)
             (out_dir / path).unlink()
 
     return downloaded_artifacts, skipped_artifacts
@@ -496,29 +496,29 @@ def meets_constraints(
 
     # Prune if the build already failed (might still be ongoing)
     if build.result not in {None, "SUCCESS"}:
-        logger().debug("build #%s result was: %s", build.number, build.result)
+        log().debug("build #%s result was: %s", build.number, build.result)
         return False
 
     if mismatching_parameters := find_mismatching_parameters(params or {}, build.parameters):
-        logger().debug(
+        log().debug(
             "build #%s has mismatching parameters: %s", build.number, mismatching_parameters
         )
         result = False
 
     expected_path_hashes = split_params(str(build.parameters.get("DEPENDENCY_PATH_HASHES") or ""))
     if expected_path_hashes and not path_hashes:
-        logger().warning(
+        log().warning(
             "strange: build #%s has expected path hashes set but we don't care?", build.number
         )
 
     if build.finished:
         if expected_path_hashes and not build.path_hashes:
-            logger().warning(
+            log().warning(
                 "strange: build #%s has expected path hashes but didn't store the actual ones!",
                 build.number,
             )
         if bool(path_hashes) != bool(build.path_hashes):
-            logger().warning(
+            log().warning(
                 "strage: build #%s path hashes provided: %s but we expected them: %s",
                 build.number,
                 bool(build.path_hashes),
@@ -526,7 +526,7 @@ def meets_constraints(
             )
 
         if not path_hashes_match(build.path_hashes, path_hashes):
-            logger().debug(
+            log().debug(
                 "build #%s has mismatching path hashes: %s != %s",
                 build.number,
                 build.path_hashes,
@@ -535,7 +535,7 @@ def meets_constraints(
             result = False
     else:
         if not path_hashes_match(expected_path_hashes, path_hashes):
-            logger().debug(
+            log().debug(
                 "build #%s has been started with mismatching expected path hashes: %s != %s",
                 build.number,
                 expected_path_hashes,
@@ -545,14 +545,14 @@ def meets_constraints(
 
     if time_constraints is None or time_constraints == "today":
         if build.timestamp.date() != datetime.now().date():
-            logger().debug(
+            log().debug(
                 "build #%s does not meet time constraints: %s != %s",
                 build.number,
                 build.timestamp.date(),
                 now.date(),
             )
             if result:
-                logger().warning(
+                log().warning(
                     "build #%s seems to have no relevant changes, but is invalidated by time"
                     " constraint only! You might want to check build conditions.",
                     build.number,
@@ -566,12 +566,12 @@ def meets_constraints(
 
 def build_id_from_queue_item(client: Jenkins, queue_id: QueueId) -> BuildId:
     """Waits for queue item with given @queue_id to be scheduled and returns Build instance"""
-    logger().info("waiting for queue item %s to be scheduled", queue_id)
+    log().info("waiting for queue item %s to be scheduled", queue_id)
     while True:
         queue_item = client.get_queue_item(queue_id)
         if executable := queue_item.get("executable"):
             return executable["number"]
-        logger().debug("still waiting in queue, because %s", queue_item["why"])
+        log().debug("still waiting in queue, because %s", queue_item["why"])
         time.sleep(1)
 
 
@@ -594,7 +594,7 @@ def find_matching_queue_item(
             queue_item_params,
         )
         if mismatching_parameters:
-            logger().debug(
+            log().debug(
                 "queue item %s has mismatching parameters: %s",
                 queue_item.get("id"),
                 mismatching_parameters,
@@ -604,12 +604,12 @@ def find_matching_queue_item(
             str(queue_item_params.get("DEPENDENCY_PATH_HASHES") or "")
         )
         if expected_path_hashes and not path_hashes:
-            logger().warning(
+            log().warning(
                 "strange: queued item %s has expected path hashes set but we don't care?",
                 queue_item.get("id"),
             )
         if not path_hashes_match(expected_path_hashes, path_hashes):
-            logger().debug(
+            log().debug(
                 "queued item %s has mismatching expected path hashes: %s != %s",
                 queue_item.get("id"),
                 expected_path_hashes,
@@ -623,7 +623,7 @@ def find_matching_queue_item(
 
 def _fn_fetch(args: Args) -> None:
     """Entry point for fetching artifacts"""
-    # logger().debug("Parsed params: %s", params)
+    # log().debug("Parsed params: %s", params)
     artifacts = fetch_job_artifacts(
         args.job,
         credentials=args.credentials,
@@ -692,7 +692,7 @@ def fetch_job_artifacts(
                 # Look for finished builds
                 for build in filter(lambda b: b.finished, job.builds.values()):
                     if meets_constraints(build, params, time_constraints, path_hashes):
-                        logger().info(
+                        log().info(
                             "found matching finished build: %s (%s)", build.number, build.url
                         )
                         return build
@@ -700,7 +700,7 @@ def fetch_job_artifacts(
                 # Look for still unfinished builds
                 for build in filter(lambda b: not b.finished, job.builds.values()):
                     if meets_constraints(build, params, time_constraints, path_hashes):
-                        logger().info(
+                        log().info(
                             "found matching unfinished build: %s (%s)", build.number, build.url
                         )
                         return build
@@ -731,8 +731,8 @@ def fetch_job_artifacts(
                 ),
             }
 
-            logger().info("start new build for %s", job_full_path)
-            logger().info("  params=%s", parameters)
+            log().info("start new build for %s", job_full_path)
+            log().info("  params=%s", parameters)
 
             return Build.from_build_info(
                 client.get_build_info(
@@ -753,10 +753,10 @@ def fetch_job_artifacts(
 
         build_candidate = elect_build_candidate()
         for key, value in build_candidate.__dict__.items():
-            logger().debug("  %s: %s", key, value)
+            log().debug("  %s: %s", key, value)
 
         if not build_candidate.finished:
-            logger().info(
+            log().info(
                 "build #%s still in progress (%s)", build_candidate.number, build_candidate.url
             )
             while True:
@@ -764,7 +764,7 @@ def fetch_job_artifacts(
                     client.get_build_info(job_full_path, build_candidate.number)
                 )
                 if not build_candidate.finished:
-                    logger().debug("build %s in progress", build_candidate.number)
+                    log().debug("build %s in progress", build_candidate.number)
                     time.sleep(10)
                     continue
                 break
@@ -774,7 +774,7 @@ def fetch_job_artifacts(
                     "The build we started has "
                     f"result={build_candidate.result} ({build_candidate.url})"
                 )
-            logger().info("build finished successfully")
+            log().info("build finished successfully")
 
         if not path_hashes_match(build_candidate.path_hashes, path_hashes):
             raise Fatal(
@@ -792,8 +792,8 @@ def fetch_job_artifacts(
             full_out_dir,
             no_remove_others,
         )
-        logger().info(
-            "%d artifacts available in %s (%d skipped, because it existed already)",
+        log().info(
+            "%d artifacts available in '%s' (%d skipped, because they were up to date locally)",
             len(downloaded_artifacts) + len(skipped_artifacts),
             full_out_dir,
             len(skipped_artifacts),
@@ -811,8 +811,8 @@ def main() -> None:
             datefmt="%Y-%m-%d %H:%M:%S",
             level=logging.DEBUG if args.log_level == "ALL_DEBUG" else logging.WARNING,
         )
-        logger().setLevel(getattr(logging, args.log_level.split("_")[-1]))
-        logger().debug("Parsed args: %s", args)
+        log().setLevel(getattr(logging, args.log_level.split("_")[-1]))
+        log().debug("Parsed args: %s", args)
         args.func(args)
     except Fatal as exc:
         print(exc, file=sys.stderr)
