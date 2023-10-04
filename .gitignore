@@ -1,10 +1,11 @@
 /.container_home_dir
 /untracked
 /dist
+/out
+/.venv
 .~*
 *~
 __pycache__
 .mypy_cache
-/.venv
 idea
 *.wpu

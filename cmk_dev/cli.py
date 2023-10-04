@@ -110,6 +110,9 @@ def fn_howto(args: Args) -> None:
         "docker": """
         https://wiki.lan.tribe29.com/books/how-to/page/how-to-work-locally-with-our-build-containers
         """,
+        "Pipfile.lock": """
+        scripts/run-in-docker.sh make --what-if Pipfile Pipfile.lock
+        """,
     }
     print(
         topics.get(

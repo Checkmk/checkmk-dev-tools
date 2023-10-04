@@ -1,20 +1,35 @@
-# Checkmk Dev Tools
+# Checkmk Development Tools
 
 This repository includes scripts/tools for Checkmk developers.
 
+TBD: what should go here
+TBD: what shouldn't go here
+
+
 ## Installation
 
+While you can just clone and use the tools inside of course (they're just plain Python or Bash
+scripts), the intended way to use it is via `pip` or inside a virtual environment.
+
+Install it locally using `pip`:
+
 ```sh
-[<PYTHON> -m] pip[3] install [--upgrade] checkmk-dev-tools
+[<PYTHON> -m] pip[3] install [--user] [--upgrade] checkmk-dev-tools
 ```
 
-## `ci-artifacts`
+## Contained tools
+
+### `cmk-dev howto`
+
+### `werk`
+
+### `ci-artifacts`
 
 `ci-rtifacts` is a tool which makes artifacts of CI jobs (currently only Jenkins)
 locally available based on certain constraints like job parameters and time constraints.
 
 
-## Usage
+#### Usage
 
 Run `ci-artifacts --help` in general. Here come a few more detailed examples,
 which might be outdated.

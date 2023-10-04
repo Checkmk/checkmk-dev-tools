@@ -228,7 +228,6 @@ def parse_arguments(argv: Sequence[str]) -> argparse.Namespace:
 
 
 def try_migrate_werk_ids():
-
     if not os.path.isfile(RESERVED_IDS_FILE_PATH) and os.path.isfile(".my_ids"):
         try:
             # migration step to move '.my_ids' to RESERVED_IDS_FILE_PATH
@@ -544,7 +543,6 @@ def main_list(args: argparse.Namespace, fmt: str) -> None:
     filters: Dict[str, List] = {}
 
     for a in args.filter:
-
         if a == "current":
             a = g_current_version
 
@@ -962,7 +960,6 @@ def werk_cherry_pick(commit_id: str, no_commit: bool) -> None:
 
     # Commit
     if werk_id is not None:
-
         # This allows for picking regular commits as well
         if not no_commit:
             subprocess.run(["git", "add", str(werk_id)], check=True)

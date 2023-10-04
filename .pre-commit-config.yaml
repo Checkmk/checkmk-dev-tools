@@ -3,6 +3,7 @@
 #     pre-commit install
 #
 ---
+fail_fast: true
 default_stages:
     - commit
     - push
@@ -25,17 +26,23 @@ repos:
             entry: dev/check-python-linting
             language: script
             types: [file, python]
+          - id: check-python-typing
+            name: Check Python Type Hinting
+            entry: dev/check-python-typing
+            language: script
+            types: [file, python]
+          - id: check-yaml-linting
+            name: Check YAML Linting
+            entry: dev/check-yaml-linting
+            language: script
+            types: [file, yaml]
           - id: check-python-doctest
             name: Doctests
             entry: dev/check-python-doctests
             language: script
             types: [file, python]
             verbose: true
-          - id: check-python-typing
-            name: Check Python Type Hinting
-            entry: dev/check-python-typing
-            language: script
-            types: [file, python]
+
             #          - id: absolute-imports
             #            name: Check absolute imports
             #            entry: scripts/check-absolute-imports.py
@@ -53,11 +60,6 @@ repos:
             #            language: script
             #            types: [file, python]
             #            verbose: true
-          - id: check-yaml-linting
-            name: Check YAML Linting
-            entry: dev/check-yaml-linting
-            language: script
-            types: [file, yaml]
 #          - id: remove-stale-imports
 #            name: Remove stale imports
 #            language: script
