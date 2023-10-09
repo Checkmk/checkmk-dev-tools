@@ -19,7 +19,7 @@ from typing import MutableMapping, MutableSequence, Optional, Sequence, Set, Tup
 from aiodocker import Docker, DockerError
 from aiodocker.volumes import DockerVolume
 from dateutil import tz
-from flask_table import Col, Table
+from docker_shaper.flask_table_patched import Col, Table
 from quart import redirect, render_template, request, url_for, websocket
 
 from docker_shaper.utils import (

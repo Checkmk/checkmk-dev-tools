@@ -141,7 +141,9 @@ async def watch_fs_changes(global_state):
                 log().info("config file %s changed - apply changes", changed_file)
                 load_config(CONFIG_FILE, global_state)
             else:
-                for module in [mod for mod in sys.modules.values() if hasattr(mod, "__file__")]:
+                for module in [
+                    mod for mod in sys.modules.values() if hasattr(mod, "__file__") and mod.__file__
+                ]:
                     if changed_file == Path(module.__file__):
                         log().info("file %s changed - reload module", changed_file)
                         importlib.reload(module)
