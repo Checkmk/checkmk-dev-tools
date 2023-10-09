@@ -13,15 +13,16 @@ from collections import Counter
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime
+from pathlib import Path
 from subprocess import CalledProcessError
 from typing import MutableMapping, MutableSequence, Optional, Sequence, Set, Tuple
 
 from aiodocker import Docker, DockerError
 from aiodocker.volumes import DockerVolume
 from dateutil import tz
-from docker_shaper.flask_table_patched import Col, Table
 from quart import redirect, render_template, request, url_for, websocket
 
+from docker_shaper.flask_table_patched import Col, Table
 from docker_shaper.utils import (
     age_str,
     date_from,
@@ -31,6 +32,8 @@ from docker_shaper.utils import (
     process_output,
     setup_introspection_on_signal,
 )
+
+BASE_DIR = Path("~/.docker_shaper").expanduser()
 
 
 def log() -> logging.Logger:
@@ -54,11 +57,12 @@ class GlobalState:
     last_referenced: MutableMapping[str, MutableSequence[int]]
     tag_rules: MutableMapping[str, int]
     extra_links: MutableMapping[str, int]
-    messages: MutableSequence[Tuple[int, str, str]]
+    messages: MutableSequence[Tuple[int, str, str, None|object]]
     switches: MutableMapping[str, bool]
     hostname: str
     expiration_ages: MutableMapping[str, int]
     update_mqueues: Set[asyncio.Queue]
+    additional_values: MutableMapping[str, object]
 
     def __init__(self):
         self.intervals = {
@@ -88,6 +92,7 @@ class GlobalState:
         self.hostname = open("/etc/hostname").read().strip()
         self.expiration_ages = {}
         self.update_mqueues = set()
+        self.additional_values = {}
 
     def new_update_queue(self) -> asyncio.Queue:
         """Creates and returns a new message queue"""
@@ -677,7 +682,9 @@ class ContainerTable(BaseTable):
                         "image": short_id(cnt["image"]) if is_uid(cnt["image"]) else cnt["image"],
                         "mem_usage": f"{(mem_stats.get('usage', 0)>>20)}MiB",
                         "cpu": f"{int(cpu_perc(cpu_stats, last_cpu_stats) * 1000) / 10}%",
-                        "cmd": "--" if not (cmd := cnt["show"]["Config"]["Cmd"]) else " ".join(cmd)[:100],
+                        "cmd": "--"
+                        if not (cmd := cnt["show"]["Config"]["Cmd"])
+                        else " ".join(cmd)[:100],
                         "job": jobname_from(
                             cnt["show"]["HostConfig"]["Binds"]
                             or list(cnt["show"]["Config"]["Volumes"] or [])
@@ -1202,6 +1209,7 @@ async def cleanup(docker_client: Docker, global_state: GlobalState) -> None:
     log().info("Cleanup!..")
 
     report(global_state, "info", "start cleanup", None)
+
     try:
         now = int(datetime.now().timestamp())
         # we could go through docker_client.containers/images/volumes, too, but to be more
@@ -1277,29 +1285,36 @@ async def cleanup(docker_client: Docker, global_state: GlobalState) -> None:
         report(global_state, "info", "cleanup done", None)
 
 
-def report(global_state, msg_type: None | str, message: None | str = None, extra=None):
+def report(
+    global_state: GlobalState,
+    msg_type: None | str = None,
+    message: None | str = None,
+    extra: None | object = None,
+) -> None:
     """Report an incident - maybe good or bad"""
-    # TODO: cleanup
-    # TODO: persist
     if sys.exc_info()[1]:
         log().exception(message)
         traceback_str = traceback.format_exc().strip("\n")
-        global_state.messages.insert(
-            0,
-            (
-                datetime.now().timestamp(),
-                msg_type or "exception",
-                "\n".join((message, traceback_str)) if message else traceback_str,
-                None,
-            ),
+        type_str, msg_str, extra_str = (
+            msg_type or "exception",
+            "\n".join((message, traceback_str)) if message else traceback_str,
+            None,
         )
     else:
-        global_state.messages.insert(
-            0, (datetime.now().timestamp(), msg_type or "debug", message or "--", str(extra))
-        )
-    global_state.messages = global_state.messages[
-        : global_state.additional_values.get("message_history_size", 100)
-    ]
+        type_str, msg_str, extra_str = (msg_type or "debug", message or "--", extra and str(extra))
+    icon = {"info": "🔵", "warn": "🟠", "error": "🔴", "exception": "🟣"}.get(type_str, "⚪")
+    now = datetime.now()
+
+    BASE_DIR.mkdir(parents=True, exist_ok=True)
+    with open(
+        BASE_DIR / f"messages-{now.strftime('%Y.%m.%d')}.log", "a", encoding="utf-8"
+    ) as log_file:
+        log_file.write(f"{icon} {date_str(now)} │ {type_str:<10s} │ {msg_str} {extra_str or  ''}\n")
+
+    global_state.messages.insert(0, (int(now.timestamp()), type_str, msg_str, extra_str))
+
+    if isinstance(msize := global_state.additional_values.get("message_history_size", 100), int):
+        global_state.messages = global_state.messages[:msize]
 
 
 def reconfigure(global_state: GlobalState) -> None:
@@ -1315,6 +1330,8 @@ def reconfigure(global_state: GlobalState) -> None:
 
     importlib.reload(utils)
     utils.setup_logging()
+
+    report(global_state, "info", "configuration reloaded")
 
 
 def setup_introspection():

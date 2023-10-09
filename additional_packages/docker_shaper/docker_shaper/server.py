@@ -15,7 +15,7 @@ from quart import Quart, Response, redirect
 from docker_shaper import dynamic
 from docker_shaper.utils import fs_changes, read_process_output
 
-CONFIG_FILE = Path("~/.docker_shaper/config.py").expanduser()
+CONFIG_FILE = dynamic.BASE_DIR / "config.py"
 
 
 def log() -> logging.Logger:
@@ -314,6 +314,8 @@ def serve():
         asyncio.ensure_future(schedule_watch_volumes(global_state))
         asyncio.ensure_future(handle_docker_events(global_state))
         asyncio.ensure_future(schedule_cleanup(global_state))
+
+    dynamic.report(global_state, "info", "docker-shaper started")
 
     app.terminator = asyncio.Event()
     app.run(
