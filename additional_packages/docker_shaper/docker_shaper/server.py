@@ -6,13 +6,11 @@ import logging
 import sys
 from contextlib import suppress
 from pathlib import Path
-from apparat import fs_changes
 
-from aiodocker import Docker
+from apparat import fs_changes
 from quart import Quart, Response, redirect
 
 from docker_shaper import dynamic, utils
-from docker_shaper.utils import read_process_output
 
 CONFIG_FILE = dynamic.BASE_DIR / "config.py"
 
@@ -22,7 +20,7 @@ def log() -> logging.Logger:
     return logging.getLogger("docker-shaper")
 
 
-async def schedule_print_container_stats(global_state):
+async def schedule_print_container_stats(global_state: dynamic.GlobalState) -> None:
     while True:
         try:
             await asyncio.ensure_future(dynamic.print_container_stats(global_state))
@@ -32,7 +30,7 @@ async def schedule_print_container_stats(global_state):
             await asyncio.sleep(5)
 
 
-async def schedule_print_state(global_state):
+async def schedule_print_state(global_state: dynamic.GlobalState):
     while True:
         try:
             await asyncio.ensure_future(dynamic.dump_global_state(global_state))
@@ -42,74 +40,25 @@ async def schedule_print_state(global_state):
             await asyncio.sleep(5)
 
 
-async def schedule_watch_containers(global_state):
-    # TODO: also use events to register
-    docker = Docker()
-    try:
-        while True:
-            try:
-                await asyncio.ensure_future(dynamic.watch_containers(docker, global_state))
-                await asyncio.sleep(global_state.intervals.get("container_update", 1))
-            except Exception:
-                dynamic.report(global_state)
-                await asyncio.sleep(5)
-    finally:
-        await docker.close()
-
-
-async def schedule_watch_images(global_state):
-    # TODO: also use events to register
-    docker = Docker()
-    try:
-        while True:
-            try:
-                await asyncio.ensure_future(dynamic.watch_images(docker, global_state))
-                await asyncio.sleep(global_state.intervals.get("image_update", 1))
-            except Exception:
-                dynamic.report(global_state)
-                await asyncio.sleep(5)
-    finally:
-        await docker.close()
-
-
-async def schedule_watch_volumes(global_state):
-    # TODO: also use events to register
-    docker = Docker()
-    try:
-        while True:
-            try:
-                await asyncio.ensure_future(dynamic.watch_volumes(docker, global_state))
-                await asyncio.sleep(global_state.intervals.get("volumes_update", 1))
-            except Exception:
-                dynamic.report(global_state)
-                await asyncio.sleep(5)
-    finally:
-        await docker.close()
-
-
 async def schedule_cleanup(global_state: dynamic.GlobalState):
-    docker = Docker()
-    try:
-        while True:
-            try:
-                while True:
-                    if (
-                        interval := global_state.intervals.get("cleanup", 3600)
-                    ) and global_state.cleanup_fuse > interval:
-                        global_state.cleanup_fuse = 0
-                        break
-                    if (interval - global_state.cleanup_fuse) % 60 == 0:
-                        log().debug(
-                            "cleanup: %s seconds to go.." % (interval - global_state.cleanup_fuse)
-                        )
-                    await asyncio.sleep(1)
-                    global_state.cleanup_fuse += 1
-                await asyncio.ensure_future(dynamic.cleanup(docker, global_state))
-            except Exception:
-                dynamic.report(global_state)
-                await asyncio.sleep(5)
-    finally:
-        await docker.close()
+    while True:
+        try:
+            while True:
+                if (
+                    interval := global_state.intervals.get("cleanup", 3600)
+                ) and global_state.cleanup_fuse > interval:
+                    global_state.cleanup_fuse = 0
+                    break
+                if (interval - global_state.cleanup_fuse) % 60 == 0:
+                    log().debug(
+                        "cleanup: %s seconds to go.." % (interval - global_state.cleanup_fuse)
+                    )
+                await asyncio.sleep(1)
+                global_state.cleanup_fuse += 1
+            await asyncio.ensure_future(dynamic.cleanup(global_state))
+        except Exception:
+            dynamic.report(global_state)
+            await asyncio.sleep(5)
 
 
 def load_config(path: Path, global_state: dynamic.GlobalState) -> None:
@@ -119,6 +68,7 @@ def load_config(path: Path, global_state: dynamic.GlobalState) -> None:
         dynamic.reconfigure(global_state)
     except AttributeError:
         log().warning("File %s does not provide a `modify(global_state)` function")
+
 
 async def watch_fs_changes(global_state: dynamic.GlobalState):
     """Watch for changes on imported files and reload them on demand"""
@@ -166,39 +116,16 @@ async def watch_fs_changes(global_state: dynamic.GlobalState):
     assert False
 
 
-async def handle_docker_events(global_state: dynamic.GlobalState):
-    while True:
-        docker = Docker()
-        try:
-            async for line in read_process_output("docker events"):
-                try:
-                    await asyncio.ensure_future(
-                        dynamic.handle_docker_event_line(global_state, line, docker)
-                    )
-                except RuntimeError as exc:
-                    log().error("Caught exeption when handling docker event line %s: %s", line, exc)
-                except Exception:
-                    dynamic.report(global_state)
-                    await asyncio.sleep(5)
-        except Exception as exc:
-            dynamic.report(global_state)
-        finally:
-            dynamic.report(global_state, "error", "Docker event watcher has been terminated")
-            await docker.close()
-
-
 def no_serve():
     global_state = dynamic.GlobalState()
     load_config(CONFIG_FILE, global_state)
     dynamic.setup_introspection()
     with suppress(KeyboardInterrupt, BrokenPipeError):
+        asyncio.ensure_future(global_state.docker_state.run())
+        asyncio.ensure_future(dynamic.run_listen_messages(global_state))
         asyncio.ensure_future(watch_fs_changes(global_state))
         asyncio.ensure_future(schedule_print_container_stats(global_state))
         asyncio.ensure_future(schedule_print_state(global_state))
-        asyncio.ensure_future(schedule_watch_containers(global_state))
-        asyncio.ensure_future(schedule_watch_images(global_state))
-        asyncio.ensure_future(schedule_watch_volumes(global_state))
-        asyncio.ensure_future(handle_docker_events(global_state))
         asyncio.ensure_future(schedule_cleanup(global_state))
         asyncio.get_event_loop().run_forever()
 
@@ -220,13 +147,6 @@ def serve():
         except Exception:
             dynamic.report(global_state, "exception", f"exception in response_{endpoint}:")
             raise
-
-    async def self_destroy():
-        await app.terminator.wait()
-        print("BOOM")
-        app.shutdown()
-        asyncio.get_event_loop().stop()
-        print("!!!!")
 
     @app.route("/shutdown")
     def route_shutdown():
@@ -316,14 +236,11 @@ def serve():
 
     @app.before_serving
     async def start_background_tasks():
-        asyncio.ensure_future(self_destroy())
+        asyncio.ensure_future(global_state.docker_state.run())
+        asyncio.ensure_future(dynamic.run_listen_messages(global_state))
         asyncio.ensure_future(watch_fs_changes(global_state))
         # asyncio.ensure_future(print_container_stats(global_state))
         asyncio.ensure_future(schedule_print_state(global_state))
-        asyncio.ensure_future(schedule_watch_containers(global_state))
-        asyncio.ensure_future(schedule_watch_images(global_state))
-        asyncio.ensure_future(schedule_watch_volumes(global_state))
-        asyncio.ensure_future(handle_docker_events(global_state))
         asyncio.ensure_future(schedule_cleanup(global_state))
 
     dynamic.report(global_state, "info", "docker-shaper started")

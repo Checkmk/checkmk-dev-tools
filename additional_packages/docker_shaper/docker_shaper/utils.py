@@ -6,7 +6,6 @@ import asyncio
 import logging
 import os
 import re
-import shlex
 import signal
 import sys
 import time
@@ -57,6 +56,7 @@ def setup_logging(level: str = "INFO") -> None:
     logging.setLoggerClass(CustomLogger)
 
     log().setLevel(getattr(logging, level.split("_")[-1]))
+    # logging.getLogger("urllib3.connectionpool")
     ch = logging.StreamHandler()
     ch.setLevel(getattr(logging, level.split("_")[-1]))
     ch.setFormatter(
@@ -112,25 +112,7 @@ def aimpatient(func):
     return run
 
 
-async def read_process_output(cmd: str) -> AsyncIterator[str]:
-    """Run a process asynchronously and handle each line on stdout using provided callback"""
-    process = await asyncio.create_subprocess_exec(
-        *shlex.split(cmd),
-        stdout=asyncio.subprocess.PIPE,
-    )
-    assert process.stdout
-    while True:
-        if not (line := (await process.stdout.readline()).decode().strip("\n")):
-            break
-        yield line
-
-
-def process_output(cmd: str) -> str:
-    """Return command output as one blob"""
-    return check_output(shlex.split(cmd), stderr=DEVNULL, text=True)
-
-
-def dur_str(seconds: int, fixed=False) -> str:
+def dur_str(seconds: float, fixed=False) -> str:
     """Turns a number of seconds into a string like 1d:2h:3m"""
     if not fixed and not seconds:
         return "0s"
@@ -146,25 +128,27 @@ def dur_str(seconds: int, fixed=False) -> str:
     return ":".join(e for e in (days, hours, minutes, seconds_str) if e)
 
 
-def age_str(now: Union[int, datetime], age: Union[int, datetime, None], fixed: bool = False) -> str:
+def age_str(now: float | datetime, age: None | int | datetime, fixed: bool = False) -> str:
     """Turn a number of seconds into something human readable"""
     if age is None:
         return "--"
+    start = age.timestamp() if isinstance(age, datetime) else age
+    if (now if age == 0 else start) <= 0.0:
+        return "--"
     return dur_str(
-        int(
-            (now.timestamp() if isinstance(now, datetime) else now)
-            - (age.timestamp() if isinstance(age, datetime) else age)
-        ),
+        int((now.timestamp() if isinstance(now, datetime) else now) - start),
         fixed=fixed,
     )
 
 
-def date_str(date: datetime) -> str:
+def date_str(date: int | datetime) -> str:
+    """Create a uniform time string from a timestamp or a datetime"""
     if not date:
         return "--"
-    return (date if isinstance(date, datetime) else datetime.fromtimestamp(date)).strftime(
-        "%Y.%m.%d-%H:%M:%S"
-    )
+    date_dt = date if isinstance(date, datetime) else datetime.fromtimestamp(date)
+    if date_dt.year < 1000:
+        return "--"
+    return (date_dt).strftime("%Y.%m.%d-%H:%M:%S")
 
 
 def date_from(timestamp: int | float | str) -> None | datetime:
@@ -192,7 +176,7 @@ def date_from(timestamp: int | float | str) -> None | datetime:
         return datetime.strptime(timestamp, "%Y-%m-%dT%H:%M:%S%z")
     except OverflowError:
         return None
-    except Exception as exc:
+    except Exception as exc:  # pylint: disable=broad-except
         raise ValueError(f"Could not parse datetime from <{timestamp!r}> ({exc})") from exc
 
 
@@ -217,7 +201,7 @@ def increase_loglevel(*_):
             logging.DEBUG: "DEBUG",
         }[new_level]
         print(f"increase_loglevel to {level}", file=sys.stderr)
-    except Exception:
+    except Exception:  # pylint: disable=broad-except
         log().exception("Could not fully write application stack trace")
 
 
@@ -244,10 +228,12 @@ def print_stacktrace_on_signal(sig, frame):
                     print_stack_frame(stack, file)
 
         print_stack_frames(sys.stderr)
-        with open(Path("~/.docker_shaper/traceback.log").expanduser(), "w") as trace_file:
+        with open(
+            Path("~/.docker_shaper/traceback.log").expanduser(), "w", encoding="utf-8"
+        ) as trace_file:
             print_stack_frames(trace_file)
             print(f"traceback also written to {trace_file}", file=sys.stderr)
-    except Exception:
+    except Exception:  # pylint: disable=broad-except
         log().exception("Could not fully write application stack trace")
 
 
