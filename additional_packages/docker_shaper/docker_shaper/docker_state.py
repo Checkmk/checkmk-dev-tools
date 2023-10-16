@@ -6,6 +6,7 @@
 # pylint: disable=too-many-instance-attributes,too-few-public-methods
 # pylint: disable=too-many-branches,too-many-return-statements
 # pylint: disable=too-many-lines
+# pylint: disable=too-many-arguments
 # pylint: disable=fixme
 # pylint: disable=import-error  # no clue why..
 
@@ -271,6 +272,11 @@ class Container:
         return f"{self.short_id} / {self.name:<26s}{image_str}{status_str}"
 
     @property
+    def id(self) -> str:
+        """Container ID"""
+        return self.raw_container.id
+
+    @property
     def short_id(self) -> str:
         """First 10 digits of Id"""
         return self.raw_container.id[:10]
@@ -337,7 +343,7 @@ class Container:
         assert self.show
         return self.show.HostConfig
 
-    def cpu_perc(self) -> float:
+    def cpu_usage(self) -> float:
         """Returns actual CPU usage of container"""
         if not self.stats or not self.last_stats:
             return 0
@@ -351,7 +357,7 @@ class Container:
         ):
             return 0
         return (
-            (cpu_stats.cpu_usage.total_usage or 0 - last_cpu_stats.cpu_usage.total_usage or 0)
+            ((cpu_stats.cpu_usage.total_usage or 0) - (last_cpu_stats.cpu_usage.total_usage or 0))
             / (cpu_stats.system_cpu_usage - last_cpu_stats.system_cpu_usage)
             * cpu_stats.online_cpus
         )
@@ -385,7 +391,7 @@ class ImageInspect(Deserializable):
     @property
     def tags(self) -> set[str]:
         """All named references to image"""
-        return set(self.RepoTags) | set(self.RepoDigests)
+        return set(self.RepoTags)  # | set(self.RepoDigests)
 
 
 class ImageHistoryElement(Deserializable):
@@ -722,7 +728,6 @@ async def unregister_container(state: DockerState, container_id: str) -> None:
     """Remove a container from set of known containers"""
     try:
         del state.containers[container_id]
-        await state.inform("container_del", container_id)
     except KeyError:
         await state.inform(
             "error", f"tried to remove container {short_id(container_id)} unknown to us"
@@ -735,32 +740,76 @@ async def watch_container(state: DockerState, container: DockerContainer) -> Non
     normally_terminated = False
     try:
         container_info = state.containers[container.id]
-        container_info.show = (show := ContainerShow(**await container.show()))
+        container_info.show = (
+            show := ContainerShow(**(await container.show()))  # type: ignore[no-untyped-call]
+        )
 
         # todo: wrong - other things could have happened since..
         await register_reference(state, show.Image, show.Created.timestamp())
 
-        await state.inform("container_add", container.id)
+        await state.inform("container_add", container.id, container_info)
 
         log().info(">> new container: %s %s", container_info.short_id, name)
 
-        async for stats in container.stats():
+        last_cpu_usage, last_mem_usage, count = 0.0, 0, 0
+
+        async for raw_stats in container.stats():  # type: ignore[no-untyped-call]
             container_info.last_stats = container_info.stats
-            container_info.stats = ContainerStats(**stats)
-            new_show = ContainerShow(**await container.show())
-            if container_info.show and new_show.status != container_info.show.status:
-                await state.inform("container_update", container.id)
-            container_info.show = new_show
+            container_info.stats = ContainerStats(**raw_stats)
+            old_show = container_info.show
+            container_info.show = ContainerShow(
+                **(await container.show())  # type: ignore[no-untyped-call]
+            )
+            cpu_usage = container_info.cpu_usage()
+            mem_usage = container_info.stats.memory_stats.usage or 0
+            if not old_show and container_info.last_stats:
+                continue
+
+            if update_inform_trigger(
+                count,
+                old_show,
+                container_info.show,
+                cpu_usage,
+                mem_usage,
+                last_cpu_usage,
+                last_mem_usage,
+            ):
+                last_cpu_usage, last_mem_usage = cpu_usage, mem_usage
+                await state.inform("container_update", container.id, container_info)
+
+            count += 1
+
         normally_terminated = True
 
     except DockerError as exc:
-        await state.inform("exception", f"DockerError while watching {container.id}", exc)
+        log().warning("DockerError while watching %s: %s", container.id, exc)
     except Exception as exc:  # pylint: disable=broad-except
         await state.inform("exception", f"in watch_container() while watching {container.id}", exc)
     finally:
         if normally_terminated:
             log().info("<< container terminated: %s %s", container_info.short_id, name)
         await unregister_container(state, container.id)
+        await state.inform("container_del", container.id, container_info)
+
+
+def update_inform_trigger(
+    count: int,
+    old_show: ContainerShow,
+    new_show: ContainerShow,
+    cpu_usage: float,
+    mem_usage: int,
+    last_cpu_usage: float,
+    last_mem_usage: int,
+) -> bool:
+    """Returns wether we should send a container update"""
+    return (
+        count == 0
+        or (new_show.status != old_show.status)
+        or (
+            (count % 10 == 0)
+            and (abs(last_cpu_usage - cpu_usage) > 0.2 or abs(last_mem_usage - mem_usage) > 1 << 20)
+        )
+    )
 
 
 async def crawl_images(state: DockerState) -> None:
@@ -862,7 +911,7 @@ async def update_image_registration(state: DockerState, image_id: str) -> None:
 
 async def crawl_volumes(state: DockerState) -> None:
     """Crawls volumes"""
-    raw_volumes = await state.client().volumes.list()
+    raw_volumes = await state.client().volumes.list()  # type: ignore[no-untyped-call]
     volumes = {vol["Name"]: Volume(**vol) for vol in raw_volumes["Volumes"]}
     log().debug("crawl (%d) volumes..", len(volumes))
     for volume_name, volume in volumes.items():
@@ -989,12 +1038,12 @@ async def handle_docker_event(state: DockerState, event: DockerEvent) -> None:
                 and not await container_from(state.client(), event_id)
                 and state.containers_crawled
             ):
-                await state.inform(
-                    "error", f"action is {event_action} but container {event_id} does not exist"
+                log().warning(
+                    "Event.action is '%s' but container %s does not exist",
+                    event_action,
+                    short_id(event_id),
                 )
             return
-        # del global_state.images[ident]
-        # del global_state.volumes[ident]
 
     elif event_type == "image":
         if event_action in {
@@ -1009,6 +1058,11 @@ async def handle_docker_event(state: DockerState, event: DockerEvent) -> None:
             "prune",
             "delete",
         }:
+            if event_action == "prune":
+                if event.Actor.ID == "":
+                    return
+                log().error("Event 'image-prune', but Actor.ID is not empty!")
+
             # NOTE: image tag/untag has NO REFERENCE to the added/removed tag!!
             await update_image_registration(state, event_id)
 
@@ -1022,6 +1076,7 @@ async def handle_docker_event(state: DockerState, event: DockerEvent) -> None:
 
         if event_action in {
             "push",
+            "save",
         }:
             return
 

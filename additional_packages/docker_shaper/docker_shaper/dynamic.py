@@ -14,6 +14,7 @@
 # pylint: disable=fixme
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -148,8 +149,24 @@ class GlobalState:
 
 async def run_listen_messages(global_state: GlobalState) -> None:
     """Print messages"""
+    (BASE_DIR / "container-logs").mkdir(parents=True, exist_ok=True)
     async for mtype, mtext, mobj in global_state.docker_state.wait_for_change():
         handle_docker_state_message(global_state, mtype, mtext, mobj)
+
+
+def log_file_name(cnt: Container) -> Path:
+    (BASE_DIR / "container-logs").mkdir(parents=True, exist_ok=True)
+    return (
+        BASE_DIR
+        / "container-logs"
+        / f"{cnt.created_at.strftime('%Y.%m.%d-%H.%M.%S')}-{cnt.short_id}.ndjson"
+    )
+
+
+def write_log_entry(file, data, indent=None):
+    file.write(json.dumps(data, indent=indent))
+    file.write("\n")
+    print(data)
 
 
 def handle_docker_state_message(
@@ -172,19 +189,20 @@ def handle_docker_state_message(
             )
             assert hasattr(mobj, "show")  # assert isinstance(mobj, Container) not possible
             cnt: Container = cast(Container, mobj)
-            assert cnt.show
+            # assert cnt.show
             with open(log_file_name(cnt), "a", encoding="utf-8") as log_file:
                 if mtype == "container_add":
-                    write_log_entry(log_file, cnt.show.model_dump(mode="json"), indent=2)
+                    write_log_entry(log_file, cnt.show.model_dump(mode="json"))
                 if mtype == "container_del":
-                    write_log_entry(log_file, cnt.show.model_dump(mode="json"), indent=2)
+                    #write_log_entry(log_file, cnt.show.model_dump(mode="json"))
+                    pass
                 if mtype == "container_update":
                     assert cnt.stats
                     write_log_entry(
                         log_file,
                         {
-                            "time": int(time.time()),
-                            "cpu-perc": int(cnt.cpu_usage() * 100) / 100,
+                            "time": int(time.time()-cnt.started_at.timestamp()),
+                            "cpu-usage": int(cnt.cpu_usage() * 100) / 100,
                             "mem-usage": cnt.stats.memory_stats.usage,
                         },
                     )
@@ -420,7 +438,7 @@ class ImageTable(BaseTable):
             now_timestamp = now.timestamp()
             created_timestamp = image.created_at.timestamp()
 
-            def coloured_ident(ident):
+            def coloured_ident(ident: str) -> str:
                 is_expired, last_referenced, expiration_age, _reason = check_expiration(
                     global_state, ident, now_timestamp, created_timestamp
                 )
