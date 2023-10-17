@@ -14,6 +14,8 @@ import asyncio
 import logging
 import re
 import time
+from asyncio import StreamReader
+from asyncio.subprocess import PIPE, create_subprocess_exec
 from collections.abc import (
     AsyncIterator,
     Mapping,
@@ -683,6 +685,33 @@ class DockerState:
             except Exception as exc:  # pylint: disable=broad-except
                 await self.inform("exception", "in run_crawl_networks()", exc)
 
+    async def prune_builder_cache(self) -> tuple[Sequence[str], Sequence[str], int]:
+        """Runs `docker builder prune` in background"""
+        return await prune_builder_cache()
+
+
+async def prune_builder_cache() -> tuple[Sequence[str], Sequence[str], int]:
+    """Runs `docker builder prune` in background"""
+
+    async def acc_stream(stream: StreamReader, prefix: str) -> Sequence[str]:
+        result = []
+        async for line in (raw_line.decode().strip() async for raw_line in stream):
+            log().debug("%s: %s", prefix, line)
+            result.append(line)
+        return result
+
+    cmd = ("docker", "builder", "prune", "--force", "--filter=until=24h", "--keep-storage=100G")
+    process = await create_subprocess_exec(*cmd, stdout=PIPE, stderr=PIPE)
+    assert process.stdout and process.stderr
+    stdout, stderr, returncode = await asyncio.gather(
+        acc_stream(process.stdout, "docker-builder-prune-std"),
+        acc_stream(process.stderr, "docker-builder-prune-err"),
+        process.wait(),
+    )
+    if returncode != 0:
+        log().error("prune_builder_cache failed")
+    return stdout, stderr, returncode
+
 
 async def crawl_containers(state: DockerState) -> None:
     """Updates set of known containers - first run is allowed to find unknown containers,
@@ -1110,6 +1139,10 @@ async def main() -> None:
     """Asynchronously run reference application"""
     from rich.logging import RichHandler  # pylint: disable=import-outside-toplevel
 
+    async def printprune(docker_state: DockerState) -> None:
+        await asyncio.sleep(2)
+        await docker_state.prune_builder_cache()
+
     async def listen_messages(docker_state: DockerState) -> None:
         """Print messages"""
         async for mtype, mtext, mobj in docker_state.wait_for_change():
@@ -1144,6 +1177,7 @@ async def main() -> None:
     await asyncio.gather(
         (docker_state := DockerState()).run(),
         listen_messages(docker_state),
+        printprune(docker_state),
     )
 
 

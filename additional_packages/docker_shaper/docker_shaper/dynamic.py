@@ -166,7 +166,6 @@ def log_file_name(cnt: Container) -> Path:
 def write_log_entry(file, data, indent=None):
     file.write(json.dumps(data, indent=indent))
     file.write("\n")
-    print(data)
 
 
 def handle_docker_state_message(
@@ -937,6 +936,13 @@ async def cleanup(global_state: GlobalState) -> None:
                 log().info("not possible: %s", exc)
 
         # TODO: react on disapearing volumes
+
+        report(global_state, "info", "invoke 'docker builder prune'")
+        _stdout, _stderr, result = await global_state.docker_state.prune_builder_cache()
+        if result == 0:
+            report(global_state, "info", "'docker builder prune' successful")
+        else:
+            report(global_state, "error", "'docker builder prune' returned non-zero")
 
     finally:
         report(global_state, "info", "cleanup done", None)
