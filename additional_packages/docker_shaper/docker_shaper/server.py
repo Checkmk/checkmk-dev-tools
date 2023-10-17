@@ -8,12 +8,13 @@ from contextlib import suppress
 from importlib.machinery import SourceFileLoader
 from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
+from apparat import fs_changes
 
 from aiodocker import Docker
 from quart import Quart, Response, redirect
 
 from docker_shaper import dynamic
-from docker_shaper.utils import fs_changes, read_process_output
+from docker_shaper.utils import read_process_output
 
 CONFIG_FILE = dynamic.BASE_DIR / "config.py"
 
@@ -128,13 +129,16 @@ def load_config(path, global_state):
     except AttributeError:
         log().warning("File %s does not provide a `modify(global_state)` function")
 
-
-async def watch_fs_changes(global_state):
+async def watch_fs_changes(global_state: dynamic.GlobalState):
     """Watch for changes on imported files and reload them on demand"""
     CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
-    async for changed_file in fs_changes(
-        Path(dynamic.__file__).parent, CONFIG_FILE.parent, timeout=2
+    async for changed_file in (
+        path
+        async for chunk in fs_changes(
+            Path(dynamic.__file__).parent, CONFIG_FILE.parent, min_interval=2
+        )
+        for path in set(chunk)
     ):
         try:
             if changed_file == CONFIG_FILE:
@@ -149,7 +153,7 @@ async def watch_fs_changes(global_state):
                         importlib.reload(module)
                         dynamic.setup_introspection()
 
-        except Exception:
+        except Exception:  # pylint: disable=broad-except
             dynamic.report(global_state)
             await asyncio.sleep(5)
     assert False

@@ -16,10 +16,6 @@ from functools import wraps
 from pathlib import Path
 from subprocess import DEVNULL, check_output
 
-# we need 3.8 compatible typing (python on build nodes)
-from typing import AsyncIterator, Union, cast
-
-from asyncinotify import Event, Inotify, Mask
 from dateutil import tz
 
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
@@ -114,62 +110,6 @@ def aimpatient(func):
     return run
 
 
-async def fs_changes(
-    *paths: Path,
-    queue: asyncio.Queue = asyncio.Queue(),
-    mask: Mask = Mask.CLOSE_WRITE | Mask.MOVED_TO | Mask.CREATE,
-    postpone: bool = False,
-    timeout: float = 2,
-) -> AsyncIterator[Path]:
-    """Controllable, timed filesystem watcher"""
-
-    # pylint: disable=too-many-locals
-
-    async def fuse_fn(queue: asyncio.Queue, timeout: float) -> None:
-        await asyncio.sleep(timeout)
-        await queue.put("timeout")
-
-    def task(name: str) -> asyncio.Task:
-        """Creates a task from a name identifying a data source to read from"""
-        return asyncio.create_task(
-            cast(Union[asyncio.Queue, Inotify], {"inotify": inotify, "mqueue": queue}[name]).get(),
-            name=name,
-        )
-
-    with Inotify() as inotify:
-        for path in paths:
-            inotify.add_watch(path, mask)
-        fuse = None
-        changed_files = set()
-        tasks = set(map(task, ("inotify", "mqueue")))
-
-        while True:
-            done, tasks = await asyncio.wait(
-                fs=tasks,
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-            for event in done:
-                event_type, event_value = event.get_name(), event.result()
-                tasks.add(task(event_type))
-                if event_type == "inotify":
-                    assert isinstance(event_value, Event)
-                    if event_value.path:
-                        changed_files.add(event_value.path)
-                    if postpone and fuse:
-                        fuse.cancel()
-                        del fuse
-                        fuse = None
-                    if not fuse:
-                        fuse = asyncio.create_task(fuse_fn(queue, timeout))
-                elif event_type == "mqueue":
-                    if event_value == "timeout":
-                        del fuse
-                        fuse = None
-                        for file in changed_files:
-                            yield file
-                        changed_files.clear()
-
-
 async def read_process_output(cmd: str) -> AsyncIterator[str]:
     """Run a process asynchronously and handle each line on stdout using provided callback"""
     process = await asyncio.create_subprocess_exec(
@@ -225,7 +165,7 @@ def date_str(date: datetime) -> str:
     )
 
 
-def date_from(timestamp: Union[int, float, str]) -> Union[None, datetime]:
+def date_from(timestamp: int | float | str) -> None | datetime:
     """
     >>> str(date_from("2023-07-14T15:05:32.174200714+02:00"))
     '2023-07-14 15:05:32+02:00'

@@ -17,7 +17,6 @@ docker-shaper = 'docker_shaper.cli:main'
 [tool.poetry.dependencies]
 python = "^3.10.4"
 aiodocker = "^0"
-asyncinotify = "^4"
 python-dateutil = "^2"
 
 quart = "^0.19"
@@ -26,6 +25,7 @@ quart = "^0.19"
 #flask-table = "^0"  # replaced
 babel = "^2"
 pytz = "^2023.3.post1"
+apparat = "^0.0.6"
 
 
 [tool.poetry.group.dev.dependencies]
