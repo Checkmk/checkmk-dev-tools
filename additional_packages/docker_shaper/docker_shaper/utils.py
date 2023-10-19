@@ -18,6 +18,7 @@ from pathlib import Path
 from types import ModuleType
 
 from dateutil import tz
+from rich.logging import RichHandler
 
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
@@ -42,6 +43,8 @@ def setup_logging(level: str = "INFO") -> None:
     """Make logging fun"""
 
     class CustomLogger(logging.getLoggerClass()):
+        """Logger with stack information"""
+
         def makeRecord(
             self, name, level, fn, lno, msg, args, exc_info, func=None, extra=None, sinfo=None
         ):
@@ -50,18 +53,17 @@ def setup_logging(level: str = "INFO") -> None:
             extra["stack"] = stack_str(5)
             return super().makeRecord(name, level, fn, lno, msg, args, exc_info, func, extra, sinfo)
 
-    for lev in LOG_LEVELS:
-        logging.addLevelName(getattr(logging, lev), f"{lev[0] * 2}")
-
     logging.setLoggerClass(CustomLogger)
 
+    logging.getLogger().setLevel(logging.WARNING)
     log().setLevel(getattr(logging, level.split("_")[-1]))
     # logging.getLogger("urllib3.connectionpool")
-    ch = logging.StreamHandler()
+    ch = RichHandler(show_path=False, markup=True, show_time=False)
     ch.setLevel(getattr(logging, level.split("_")[-1]))
     ch.setFormatter(
         logging.Formatter(
-            "(%(levelname)s) %(asctime)s | %(stack)s: %(message)s", datefmt="%Y-%m-%d %H:%M:%S"
+            "│ %(asctime)s | [grey]%(stack)-55s[/] │ [bold white]%(message)s[/]",
+            datefmt="%Y-%m-%d %H:%M:%S",
         )
     )
     log().handlers = [ch]
@@ -85,13 +87,12 @@ def impatient(func):
 
     @wraps(func)
     def run(*args: object, **kwargs: object) -> object:
+        t1 = time.time()
         try:
-            t1 = time.time()
             return func(*args, **kwargs)
         finally:
             if (duration := time.time() - t1) > 0.2:
-                log().warn("%s took %.2fs!", func.__name__, duration)
-            # log().info("%s took %.2fs!", func.__name__, duration)
+                log().warning("%s took %.2fs!", func.__name__, duration)
 
     return run
 
@@ -101,13 +102,12 @@ def aimpatient(func):
 
     @wraps(func)
     async def run(*args: object, **kwargs: object) -> object:
+        t1 = time.time()
         try:
-            t1 = time.time()
             return await func(*args, **kwargs)
         finally:
             if (duration := time.time() - t1) > 0.1:
                 log().warning("%s took %.2fs!", func.__name__, duration)
-            # log().info("%s took %.2fs!", func.__name__, duration)
 
     return run
 
