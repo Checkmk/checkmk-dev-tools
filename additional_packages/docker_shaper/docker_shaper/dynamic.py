@@ -22,7 +22,7 @@ import sys
 import time
 import traceback
 from collections import Counter
-from collections.abc import Iterable, MutableMapping, MutableSequence
+from collections.abc import Iterable, Mapping, MutableMapping, MutableSequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -231,26 +231,30 @@ def expiration_age_from_ident(global_state: GlobalState, ident: str) -> tuple[in
         return global_state.expiration_ages["tag_default"], "is_uid=>tag_default"
 
     # effective_ident = unique_ident(ident)
+    return expiration_age_from_image_name(
+        global_state.tag_rules, ident, global_state.expiration_ages["tag_unknown"]
+    )
 
+
+def expiration_age_from_image_name(
+    tag_rules: Mapping[str, int], image_name: str, default: int
+) -> tuple[int, str]:
     matching_rules = tuple(
-        (regex, age) for regex, age in global_state.tag_rules.items() if re.match(regex, ident)
+        (regex, age) for regex, age in tag_rules.items() if re.match(regex, image_name)
     )
 
     if len(matching_rules) == 1:
         return matching_rules[0][1], matching_rules[0][0]
 
     if not matching_rules:
-        log().warning("No rule found for %r", ident)
-        return global_state.expiration_ages["tag_unknown"], "no rule=>tag_unknown"
+        log().warning("No rule found for %r", image_name)
+        return default, "no rule=>tag_unknown"
 
-    log().error("Multiple rules found for %s:", ident)
+    log().error("Multiple rules found for %s:", image_name)
     for rule in matching_rules:
         log().error("  %s:", rule[0])
 
-    return (
-        global_state.expiration_ages["tag_unknown"],
-        f"multiple_rules=>tag_unknown ({[rule[0] for  rule in  matching_rules]})",
-    )
+    return default, f"multiple_rules=>tag_unknown ({[rule[0] for  rule in  matching_rules]})"
 
 
 @impatient
