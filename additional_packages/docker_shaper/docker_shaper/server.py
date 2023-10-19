@@ -5,15 +5,13 @@ import importlib
 import logging
 import sys
 from contextlib import suppress
-from importlib.machinery import SourceFileLoader
-from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
 from apparat import fs_changes
 
 from aiodocker import Docker
 from quart import Quart, Response, redirect
 
-from docker_shaper import dynamic
+from docker_shaper import dynamic, utils
 from docker_shaper.utils import read_process_output
 
 CONFIG_FILE = dynamic.BASE_DIR / "config.py"
@@ -114,15 +112,8 @@ async def schedule_cleanup(global_state: dynamic.GlobalState):
         await docker.close()
 
 
-def load_config(path, global_state):
-    spec = spec_from_file_location("dynamic_config", path)
-    if not (spec and spec.loader):
-        raise RuntimeError("Could not load")
-    module = module_from_spec(spec)
-    assert module
-    # assert isinstance(spec.loader, SourceFileLoader)
-    loader: SourceFileLoader = spec.loader
-    loader.exec_module(module)
+def load_config(path: Path, global_state: dynamic.GlobalState) -> None:
+    module = utils.load_module(path)
     try:
         module.modify(global_state)
         dynamic.reconfigure(global_state)
@@ -133,26 +124,42 @@ async def watch_fs_changes(global_state: dynamic.GlobalState):
     """Watch for changes on imported files and reload them on demand"""
     CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
-    async for changed_file in (
-        path
+    async for changes in (
+        relevant_changes
         async for chunk in fs_changes(
-            Path(dynamic.__file__).parent, CONFIG_FILE.parent, min_interval=2
+            Path(dynamic.__file__).parent, CONFIG_FILE.parent, min_interval=2, postpone=True
         )
-        for path in set(chunk)
+        if (changed_files := set(chunk))
+        for loaded_modules in (
+            {
+                Path(mod.__file__): mod
+                for mod in sys.modules.values()
+                if hasattr(mod, "__file__") and mod.__file__
+                if not any(infix in mod.__file__ for infix in (".pyenv", ".venv", "wingpro"))
+            },
+        )
+        if (
+            relevant_changes := [
+                (path, loaded_modules.get(path))
+                for path in changed_files
+                if path == CONFIG_FILE or path in loaded_modules
+            ],
+        )
     ):
+        for changed_file, module in changes:
+            try:
+                if changed_file == CONFIG_FILE:
+                    log().info("config file %s changed - apply changes", changed_file)
+                    load_config(CONFIG_FILE, global_state)
+                else:
+                    log().info("file %s changed - reload module", changed_file)
+                    assert module
+                    importlib.reload(module)
+            except Exception:  # pylint: disable=broad-except
+                dynamic.report(global_state)
+                await asyncio.sleep(5)
         try:
-            if changed_file == CONFIG_FILE:
-                log().info("config file %s changed - apply changes", changed_file)
-                load_config(CONFIG_FILE, global_state)
-            else:
-                for module in [
-                    mod for mod in sys.modules.values() if hasattr(mod, "__file__") and mod.__file__
-                ]:
-                    if changed_file == Path(module.__file__):
-                        log().info("file %s changed - reload module", changed_file)
-                        importlib.reload(module)
-                        dynamic.setup_introspection()
-
+            dynamic.setup_introspection()
         except Exception:  # pylint: disable=broad-except
             dynamic.report(global_state)
             await asyncio.sleep(5)

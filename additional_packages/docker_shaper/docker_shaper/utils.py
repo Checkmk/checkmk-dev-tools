@@ -13,8 +13,10 @@ import time
 import traceback
 from datetime import datetime
 from functools import wraps
+from importlib.machinery import SourceFileLoader
+from importlib.util import module_from_spec, spec_from_file_location
 from pathlib import Path
-from subprocess import DEVNULL, check_output
+from types import ModuleType
 
 from dateutil import tz
 
@@ -260,3 +262,16 @@ def setup_introspection_on_signal():
 
     setup_signal(signal.SIGUSR1, increase_loglevel, "increase log level")
     setup_signal(signal.SIGUSR2, print_stacktrace_on_signal, "print stacktrace")
+
+
+def load_module(path: Path) -> ModuleType:
+    """Loads a module from a file path"""
+    spec = spec_from_file_location("dynamic_config", path)
+    if not (spec and spec.loader):
+        raise RuntimeError("Could not load")
+    module = module_from_spec(spec)
+    assert module
+    # assert isinstance(spec.loader, SourceFileLoader)
+    loader: SourceFileLoader = spec.loader
+    loader.exec_module(module)
+    return module
