@@ -50,6 +50,7 @@ from docker_shaper.utils import (
     age_str,
     date_str,
     dur_str,
+    get_hostname,
     impatient,
     setup_introspection_on_signal,
 )
@@ -60,12 +61,6 @@ BASE_DIR = Path("~/.docker_shaper").expanduser()
 def log() -> logging.Logger:
     """Logger for this module"""
     return logging.getLogger("docker-shaper")
-
-
-def read_hostname() -> str:
-    """Returns local hostname read from /etc/hostname"""
-    with open("/etc/hostname", encoding="utf-8") as hostname_file:
-        return hostname_file.read().strip()
 
 
 @dataclass
@@ -98,7 +93,7 @@ class GlobalState:
         self.extra_links = {}
         self.switches = {}
         self.messages = []
-        self.hostname = read_hostname()
+        self.hostname = get_hostname()
         self.expiration_ages = {}
         self.update_mqueues = set()
         self.additional_values = {}

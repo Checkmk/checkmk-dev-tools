@@ -261,3 +261,9 @@ def load_module(path: Path) -> ModuleType:
     loader: SourceFileLoader = spec.loader
     loader.exec_module(module)
     return module
+
+
+def get_hostname() -> str:
+    """Returns local hostname read from /etc/hostname"""
+    with open("/etc/hostname", encoding="utf-8") as hostname_file:
+        return hostname_file.read().strip()
