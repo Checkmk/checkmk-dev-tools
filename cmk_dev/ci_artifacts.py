@@ -193,11 +193,19 @@ class Build:
         result = cast(str, build_info["result"])
         in_progress = cast(bool, build_info["inProgress"])
         # TODO: what's the difference between .in_progress and .building?
-        assert in_progress == cast(bool, build_info["building"])
-        assert result in {None, "FAILURE", "SUCCESS"}
-        # assert result in {None, "SUCCESS", "FAILURE"}
 
-        assert result or in_progress
+        if in_progress != cast(bool, build_info["building"]):
+            log().error(
+                "in_progress=%s and build_info['building']=%s are inconsistent",
+                in_progress,
+                build_info["result"],
+            )
+
+        if not result in {None, "FAILURE", "SUCCESS"}:
+            log().error("Build result has unexpected value %s", result)
+
+        if not result and not in_progress:
+            log().error("result=%s and in_progress=%s are inconsistent", result, in_progress)
 
         return Build(
             url=cast(str, build_info["url"]),
@@ -233,7 +241,13 @@ class Job:
         return f"Job('{self.fullname}', {len(self.builds)} builds)"
 
     def __init__(self, raw_job_info: GenMap, raw_build_infos: GenMapArray):
-        assert not raw_job_info.get("queueItem") and not raw_job_info.get("inQueue")
+        if raw_job_info.get("queueItem") or raw_job_info.get("inQueue"):
+            log().error(
+                "Inconsistent values for raw_job_info.get('queueItem')=%s and"
+                " raw_job_info.get('inQueue')=%s",
+                raw_job_info.get("queueItem"),
+                raw_job_info.get("inQueue"),
+            )
         self.name = cast(str, raw_job_info["name"])
         self.fullname = cast(str, raw_job_info["fullName"])
         self.url = cast(str, raw_job_info["url"])
@@ -264,13 +278,17 @@ def extract_credentials(credentials: Union[None, Mapping[str, str]]) -> Mapping[
         and any(key in credentials for key in ("username", "username_env"))
         and any(key in credentials for key in ("password", "password_env"))
     ):
-        return {
-            "url": credentials.get("url") or os.environ[credentials.get("url_env", "")],
-            "username": credentials.get("username")
-            or os.environ[credentials.get("username_env", "")],
-            "password": credentials.get("password")
-            or os.environ[credentials.get("password_env", "")],
-        }
+        try:
+            return {
+                "url": credentials.get("url") or os.environ[credentials.get("url_env", "")],
+                "username": credentials.get("username")
+                or os.environ[credentials.get("username_env", "")],
+                "password": credentials.get("password")
+                or os.environ[credentials.get("password_env", "")],
+            }
+        except KeyError as exc:
+            raise Fatal(f"Requested environment variable {exc} is not defined") from exc
+
     log().debug(
         "Credentials haven't been (fully) provided via --credentials, trying JJB config instead"
     )
@@ -328,7 +346,9 @@ def _fn_info(args: Args) -> None:
 def git_commit_id(git_dir: Path, path: Union[None, Path, str] = None) -> str:
     """Returns the git hash of combination of given paths. First one must be a directory, the
     second one is then considered relative"""
-    assert git_dir.is_dir()
+    if not git_dir.is_dir():
+        raise Fatal(f"Provided path '{git_dir}', considered a git-checkout-dir is not a directory")
+
     if path and not (git_dir / path).exists():
         raise Fatal(f"There is no path to '{path}' inside '{git_dir}'")
     with cwd(git_dir):
@@ -376,7 +396,12 @@ def download_artifacts(
         ).json()["fingerprint"]
     }
 
-    assert len(fingerprints) == len(build.artifacts)
+    if len(fingerprints) != len(build.artifacts):
+        log().error(
+            "inconsistent values for len(fingerprints)=%d != len(build.artifacts)=%d",
+            len(fingerprints),
+            len(build.artifacts),
+        )
 
     if not fingerprints:
         raise Fatal(f"no (fingerprinted) artifacts found at {build.url}")
