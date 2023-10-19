@@ -419,6 +419,7 @@ class PlainCol(Col):
 class ImageTable(BaseTable):
     short_id = PlainCol("short_id")
     tags = PlainCol("tags")
+    children_count = PlainCol("#children")
     created_at = PlainCol("created_at")
     age = PlainCol("age")
 
@@ -452,6 +453,7 @@ class ImageTable(BaseTable):
                 "short_id": coloured_ident(image.short_id),
                 "tags": "".join(map(coloured_ident, image.tags)),
                 "created_at": date_str(image.created_at),
+                "children_count": len(image.children),
                 "age": age_str(now, image.created_at, fixed=True),
                 # "last_referenced": last_referenced_str(image["short_id"]),
                 # "class": ("text-danger" if
