@@ -721,7 +721,7 @@ async def crawl_containers(state: DockerState) -> None:
         cont.id: cont
         for cont in await state.client().containers.list(all=True)  # type: ignore[no-untyped-call]
     }
-    log().debug("crawl (%d) containers..", len(containers))
+    log().info("crawl (%d) containers..", len(containers))
     for container in containers.values():
         if container.id in state.containers:
             continue
@@ -846,7 +846,7 @@ async def crawl_images(state: DockerState) -> None:
     afterwards the set is expected to be consistent"""
     log().debug("fetch image list..")
     image_ids = set(image["Id"] for image in await state.client().images.list(all=True))
-    log().debug("crawl (%d) images..", len(image_ids))
+    log().info("crawl (%d) images..", len(image_ids))
 
     for image_id in image_ids:
         if image_id in state.images:
@@ -942,12 +942,12 @@ async def crawl_volumes(state: DockerState) -> None:
     """Crawls volumes"""
     raw_volumes = await state.client().volumes.list()  # type: ignore[no-untyped-call]
     volumes = {vol["Name"]: Volume(**vol) for vol in raw_volumes["Volumes"]}
-    log().debug("crawl (%d) volumes..", len(volumes))
+    log().info("crawl (%d) volumes..", len(volumes))
     for volume_name, volume in volumes.items():
         if volume_name in state.volumes:
             continue
         if state.images_crawled:
-            log().warning("  found unregistered volume %s", volume_name)
+            log().warning("  found unregistered volume %s", short_id(volume_name))
         log().debug("  %s", volume_name)
         # todo: proper register fn
         state.volumes[volume_name] = volume
@@ -964,7 +964,7 @@ async def crawl_volumes(state: DockerState) -> None:
 async def crawl_networks(state: DockerState) -> None:
     """Crawls networks"""
     networks = {net["Id"]: Network(**net) for net in await state.client().networks.list()}
-    log().debug("crawl (%d) networks..", len(networks))
+    log().info("crawl (%d) networks..", len(networks))
     for net_id, network in networks.items():
         if net_id in state.networks:
             continue

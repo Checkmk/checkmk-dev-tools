@@ -20,7 +20,10 @@ Deleted build cache objects:
 4nmqg2nvgi2xcs3pt4vinhqbm
 ...
 
+Todo:
+- [ ] List rules
 """
+
 import asyncio
 import logging
 import time
@@ -49,7 +52,7 @@ class RichLogHandler(RichHandler):
     """Redirects rich.RichHanlder capabilities to a textual.RichLog"""
 
     def __init__(self, widget: RichLog):
-        super().__init__(show_path=False, markup=False, show_time=False, show_level=False)
+        super().__init__(show_path=False, markup=True, show_time=False)
         self.widget: RichLog = widget
 
     def emit(self, record: logging.LogRecord) -> None:
@@ -64,7 +67,7 @@ class RichLogHandler(RichHandler):
 
 class LockingRichLog(RichLog):
     @on(ScrollTo)
-    def on_scroll_to(self, event: Message) -> None:
+    def on_scroll_to(self, _event: Message) -> None:
         self.auto_scroll = self.is_vertical_scroll_end
 
 
@@ -227,20 +230,13 @@ class DockerMon(App[None]):
 
     async def on_mount(self) -> None:
         """UI entry point"""
-
-        def fmt_filter(record):
-            record.levelname = f"[{record.levelname}]"
-            record.funcName = f"[{record.funcName}]"
-            return True
-
         logging.getLogger().handlers = [handler := RichLogHandler(self._richlog)]
         handler.setFormatter(
             logging.Formatter(
-                "%(levelname)-9s %(asctime)s %(funcName)-22s│ %(message)s",
+                "│ %(asctime)s | [grey53]%(funcName)-32s[/] │ [bold white]%(message)s[/]",
                 datefmt="%Y-%m-%d %H:%M:%S",
             )
         )
-        handler.addFilter(fmt_filter)
 
         with suppress(FileNotFoundError):
             config = utils.load_module(Path("~/.docker_shaper").expanduser() / "config.py")

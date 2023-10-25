@@ -25,7 +25,7 @@ async def schedule_print_container_stats(global_state: dynamic.GlobalState) -> N
         try:
             await asyncio.ensure_future(dynamic.print_container_stats(global_state))
             await asyncio.sleep(global_state.intervals.get("container_stats", 1))
-        except Exception:
+        except Exception:  # pylint: disable=broad-except
             dynamic.report(global_state)
             await asyncio.sleep(5)
 
@@ -35,7 +35,7 @@ async def schedule_print_state(global_state: dynamic.GlobalState):
         try:
             await asyncio.ensure_future(dynamic.dump_global_state(global_state))
             await asyncio.sleep(global_state.intervals.get("state", 1))
-        except Exception:
+        except Exception:  # pylint: disable=broad-except
             dynamic.report(global_state)
             await asyncio.sleep(5)
 
@@ -51,12 +51,12 @@ async def schedule_cleanup(global_state: dynamic.GlobalState):
                     break
                 if (interval - global_state.cleanup_fuse) % 60 == 0:
                     log().debug(
-                        "cleanup: %s seconds to go.." % (interval - global_state.cleanup_fuse)
+                        "cleanup: %s seconds to go..", (interval - global_state.cleanup_fuse)
                     )
                 await asyncio.sleep(1)
                 global_state.cleanup_fuse += 1
             await asyncio.ensure_future(dynamic.cleanup(global_state))
-        except Exception:
+        except Exception:  # pylint: disable=broad-except
             dynamic.report(global_state)
             await asyncio.sleep(5)
 
@@ -144,7 +144,7 @@ def serve():
             return f"Not known: {endpoint}"
         try:
             return await getattr(dynamic, f"response_{endpoint}")(global_state)
-        except Exception:
+        except Exception:  # pylint: disable=broad-except
             dynamic.report(global_state, "exception", f"exception in response_{endpoint}:")
             raise
 

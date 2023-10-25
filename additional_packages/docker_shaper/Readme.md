@@ -62,6 +62,12 @@ python3 -m pip install --user dist/checkmk_dev_tools-$(grep -E "^version.?=" pyp
 
 ## Todo
 
+- [x] Fix: stuck auto-reload: was: postpone=True + monitoring log
+- [ ] Fix: crawl-images should fix parents not having them listed
+- [ ] Fix: stuck crawl images
+- [ ] Fix: `'677aff0727' could not be removed: DockerError(404, 'No such image: 677aff0727:latest')`
+- [ ] Fix: `tried to remove container 4f5fb0848c unknown to us`
+
 - [x] installable via `pip install`
 - [x] Quart interface (instead of `flask`)
 - [x] auto-apply changes to source and configuration files
@@ -76,16 +82,17 @@ python3 -m pip install --user dist/checkmk_dev_tools-$(grep -E "^version.?=" pyp
 - [x] Increase/decrease logging via web / signal
 - [x] Link: cleanup (images/containers) now
 - [x] Add volumes list (with recent owners)
-- [ ] Warn about use of unpinned images
+- [x] Containers: Store CPU / Memory usage over time
+- [x] Containers: store history
+- [x] Persist messages
+- [ ] Show different color for unmatched images
+- [ ] Warn about use of unpinned / upstream images
 - [ ] Handle 'build cache objects' (found on system prune)
 - [ ] Bring in volume monitoring: which volumes have been created and used by which containers?
-- [ ] Containers: Store CPU / Memory usage over time
 - [ ] Containers: show total CPU usage
 - [ ] Containers: list volumes
-- [ ] Containers: list parents / children
-- [ ] Containers: store history
+- [ ] Images: list parents / children
 - [ ] Volumes: list usage
-- [ ] Persist messages
 - [ ] Instructions to readme
 - [ ] List unmatched / overmatched tags
 - [ ] Links to `delete` / `remove`

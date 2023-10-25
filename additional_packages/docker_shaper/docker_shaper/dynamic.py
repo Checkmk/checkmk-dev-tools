@@ -188,14 +188,14 @@ def handle_docker_state_message(
                 if mtype == "container_add":
                     write_log_entry(log_file, cnt.show.model_dump(mode="json"))
                 if mtype == "container_del":
-                    #write_log_entry(log_file, cnt.show.model_dump(mode="json"))
+                    # write_log_entry(log_file, cnt.show.model_dump(mode="json"))
                     pass
                 if mtype == "container_update":
                     assert cnt.stats
                     write_log_entry(
                         log_file,
                         {
-                            "time": int(time.time()-cnt.started_at.timestamp()),
+                            "time": int(time.time() - cnt.started_at.timestamp()),
                             "cpu-usage": int(cnt.cpu_usage() * 100) / 100,
                             "mem-usage": cnt.stats.memory_stats.usage,
                         },
@@ -334,6 +334,7 @@ async def dump_global_state(global_state: GlobalState):
             "handle_messages",
             "get",
             "wait",
+            "write_bytes",
             "raise_shutdown",
             "_connect_pipes",
             "_server_callback",
