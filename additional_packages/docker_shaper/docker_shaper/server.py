@@ -77,7 +77,7 @@ async def watch_fs_changes(global_state: dynamic.GlobalState):
     async for changes in (
         relevant_changes
         async for chunk in fs_changes(
-            Path(dynamic.__file__).parent, CONFIG_FILE.parent, min_interval=2, postpone=True
+            Path(dynamic.__file__).parent, CONFIG_FILE.parent, min_interval=4, postpone=False
         )
         if (changed_files := set(chunk))
         for loaded_modules in (
@@ -93,7 +93,7 @@ async def watch_fs_changes(global_state: dynamic.GlobalState):
                 (path, loaded_modules.get(path))
                 for path in changed_files
                 if path == CONFIG_FILE or path in loaded_modules
-            ],
+            ]
         )
     ):
         for changed_file, module in changes:
