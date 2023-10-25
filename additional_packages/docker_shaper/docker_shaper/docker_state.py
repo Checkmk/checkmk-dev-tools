@@ -60,9 +60,8 @@ def short_id(docker_id: str) -> str:
     >>> short_id("sha256:abcdefghijklmnop")
     'abcdefghij'
     """
-    if not docker_id:
+    if not docker_id or not is_uid(docker_id):
         return docker_id
-    assert is_uid(docker_id), docker_id
     return docker_id[7:17] if docker_id.startswith("sha256:") else docker_id[:10]
 
 
