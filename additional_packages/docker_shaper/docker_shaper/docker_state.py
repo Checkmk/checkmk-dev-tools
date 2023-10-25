@@ -651,38 +651,36 @@ class DockerState:
         while True:
             try:
                 await crawl_containers(self)
-                await asyncio.sleep(self.containers_crawl_interval)
             except Exception as exc:  # pylint: disable=broad-except
                 await self.inform("exception", "in run_crawl_containers()", exc)
+            await asyncio.sleep(self.containers_crawl_interval)
 
     async def run_crawl_images(self) -> None:
         """Continuously updates information about local images"""
         while True:
             try:
                 await crawl_images(self)
-                await asyncio.sleep(self.images_crawl_interval)
             except Exception as exc:  # pylint: disable=broad-except
                 await self.inform("exception", "in run_crawl_images()", exc)
+            await asyncio.sleep(self.images_crawl_interval)
 
     async def run_crawl_volumes(self) -> None:
         """Continuously updates information about docker volumes"""
         while True:
             try:
                 await crawl_volumes(self)
-                self.volumes_crawled = True
-                await asyncio.sleep(self.volumes_crawl_interval)
             except Exception as exc:  # pylint: disable=broad-except
                 await self.inform("exception", "in run_crawl_volumes()", exc)
+            await asyncio.sleep(self.volumes_crawl_interval)
 
     async def run_crawl_networks(self) -> None:
         """Continuously updates information about docker networks"""
         while True:
             try:
                 await crawl_networks(self)
-                self.networks_crawled = True
-                await asyncio.sleep(self.networks_crawl_interval)
             except Exception as exc:  # pylint: disable=broad-except
                 await self.inform("exception", "in run_crawl_networks()", exc)
+            await asyncio.sleep(self.networks_crawl_interval)
 
     async def prune_builder_cache(self) -> tuple[Sequence[str], Sequence[str], int]:
         """Runs `docker builder prune` in background"""
@@ -861,8 +859,27 @@ async def crawl_images(state: DockerState) -> None:
         state.images_crawled = True
         log().debug("initial image crawl done")
 
+    # This is only for plausibility - go through all registered images and check if they still
+    # exist and also check their parents having stored a reference
     for image_id in list(state.images):
-        if image_id not in image_ids:
+        if image_id in image_ids:
+            # registered image also exists in found images (ok)
+            if not (parent_id := state.images[image_id].parent):
+                continue
+            if parent_id in state.images:
+                # parent is registered (as expected) - now check if it knows it's child
+                if image_id not in state.images[parent_id].children:
+                    log().error(
+                        "parent %s of %s does not store a reference to it child",
+                        short_id(parent_id),
+                        short_id(image_id),
+                    )
+                    state.images[parent_id].children.add(image_id)
+            else:
+                log().error("parent of %s is not registered even after crawls", short_id(image_id))
+                await register_image(state, parent_id)
+                state.images[parent_id].children.add(image_id)
+        else:
             log().error("registered image %s does not exist anymore", short_id(image_id))
             await unregister_image(state, image_id)
 
@@ -878,14 +895,10 @@ async def image_from(docker_client: Docker, ident: str) -> None | ImageInspect:
     return None
 
 
-async def register_image(state: DockerState, image_or_id: ImageInspect | str) -> None:
+async def register_image(state: DockerState, image_id: str) -> None:
     """Put an image into set of known images"""
-    log().debug("fetch inspect data for '%s'..", image_or_id)
-    inspect: ImageInspect = (
-        image_or_id
-        if isinstance(image_or_id, ImageInspect)
-        else ImageInspect(**await state.client().images.inspect(image_or_id))
-    )
+    log().debug("fetch inspect data for and register image '%s'..", short_id(image_id))
+    inspect = ImageInspect(**await state.client().images.inspect(image_id))
     state.images[inspect.Id] = Image(
         inspect,
         [ImageHistoryElement(**hist) for hist in await state.client().images.history(inspect.Id)],
