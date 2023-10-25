@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "docker-shaper"
-version = "0.1.22"
+version = "0.1.23"
 description = "Keeps Docker resources in shape based on rules and usage"
 authors = ["Frans Fürst <frans.fuerst@checkmk.com>"]
 repository = "https://github.com/Checkmk/checkmk-dev-tools"
@@ -26,7 +26,7 @@ quart = "^0.19"
 #flask-table = "^0"  # replaced
 babel = "^2"
 pytz = "^2023.3.post1"
-apparat = "^0.0.6"
+apparat = "^0.0.8"
 pydantic = "^2.4"
 rich = "^13"
 textual = "^0"
