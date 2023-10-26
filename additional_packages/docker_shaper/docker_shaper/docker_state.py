@@ -139,6 +139,7 @@ class ContainerShowConfig(Deserializable):
         "StdinOnce",
         "ExposedPorts",
         "Healthcheck",
+        "Shell",
     }
 
 
