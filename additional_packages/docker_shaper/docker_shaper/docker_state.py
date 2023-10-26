@@ -966,7 +966,8 @@ async def crawl_volumes(state: DockerState) -> None:
         if volume_name in state.volumes:
             continue
         if state.images_crawled:
-            log().warning("  found unregistered volume %s", short_id(volume_name))
+            # todo: should be 'error' when recognized by events
+            log().debug("  found unregistered volume %s", short_id(volume_name))
         log().debug("  %s", volume_name)
         # todo: proper register fn
         state.volumes[volume_name] = volume
@@ -979,7 +980,8 @@ async def crawl_volumes(state: DockerState) -> None:
         log().warning("  VolumesWarnings: %s", raw_volumes["Warnings"])
     for volume_name in list(state.volumes):
         if volume_name not in volumes:
-            log().error("registered volumes %s does not exist anymore", short_id(volume_name))
+            # todo: should be 'error' when recognized by events
+            log().debug("registered volumes %s does not exist anymore", short_id(volume_name))
             # todo: proper register fn
             del state.volumes[volume_name]
 
@@ -992,7 +994,8 @@ async def crawl_networks(state: DockerState) -> None:
         if net_id in state.networks:
             continue
         if state.images_crawled:
-            log().warning("  found unregistered network %s", net_id)
+            # todo: should be 'error' when recognized by events
+            log().debug("  found unregistered network %s", net_id)
         log().debug("  %s", net_id)
         # todo: proper register fn
         state.networks[net_id] = network
@@ -1003,7 +1006,8 @@ async def crawl_networks(state: DockerState) -> None:
 
     for net_id in list(state.networks):
         if net_id not in networks:
-            log().error("registered network %s does not exist anymore", short_id(net_id))
+            # todo: should be 'error' when recognized by events
+            log().debug("registered network %s does not exist anymore", short_id(net_id))
             # todo: proper register fn
             del state.networks[net_id]
 
@@ -1163,12 +1167,9 @@ async def handle_docker_event(state: DockerState, event: DockerEvent) -> None:
 
 
 async def main() -> None:
-    """Asynchronously run reference application"""
+    """Only for debugging purposes:
+    Asynchronously run reference application"""
     from rich.logging import RichHandler  # pylint: disable=import-outside-toplevel
-
-    async def printprune(docker_state: DockerState) -> None:
-        await asyncio.sleep(2)
-        await docker_state.prune_builder_cache()
 
     async def listen_messages(docker_state: DockerState) -> None:
         """Print messages"""
@@ -1209,7 +1210,7 @@ async def main() -> None:
 
     logging.basicConfig(
         format="│ %(name)-10s │ %(message)s",
-        handlers=[RichHandler(show_path=False, markup=True, show_time=False)],
+        handlers=[RichHandler(show_path=False, markup=False, show_time=False)],
     )
     logging.getLogger().setLevel(logging.WARNING)
     log().setLevel(logging.DEBUG)
@@ -1217,7 +1218,6 @@ async def main() -> None:
     await asyncio.gather(
         (docker_state := DockerState()).run(),
         listen_messages(docker_state),
-        printprune(docker_state),
     )
 
 
