@@ -726,7 +726,11 @@ async def crawl_containers(state: DockerState) -> None:
         if state.containers_crawled:
             log().error("%s should have been registered automatically before!", container.id)
         await register_container(state, container)
-    state.containers_crawled = True
+
+    if not state.containers_crawled:
+        state.containers_crawled = True
+        log().info("initial container crawl done")
+
     for container_id in list(state.containers):
         if container_id not in containers:
             log().error("registered container %s does not exist anymore", short_id(container_id))
@@ -857,7 +861,7 @@ async def crawl_images(state: DockerState) -> None:
 
     if not state.images_crawled:
         state.images_crawled = True
-        log().debug("initial image crawl done")
+        log().info("initial image crawl done")
 
     # This is only for plausibility - go through all registered images and check if they still
     # exist and also check their parents having stored a reference
@@ -870,13 +874,17 @@ async def crawl_images(state: DockerState) -> None:
                 # parent is registered (as expected) - now check if it knows it's child
                 if image_id not in state.images[parent_id].children:
                     log().error(
-                        "parent %s of %s does not store a reference to it child",
+                        "parent '%s' of '%s' does not store a reference to its child",
                         short_id(parent_id),
                         short_id(image_id),
                     )
                     state.images[parent_id].children.add(image_id)
             else:
-                log().error("parent of %s is not registered even after crawls", short_id(image_id))
+                log().error(
+                    "parent '%s' of '%s' is not registered even after crawls",
+                    short_id(parent_id),
+                    short_id(image_id),
+                )
                 await register_image(state, parent_id)
                 state.images[parent_id].children.add(image_id)
         else:
@@ -899,10 +907,8 @@ async def register_image(state: DockerState, image_id: str) -> None:
     """Put an image into set of known images"""
     log().debug("fetch inspect data for and register image '%s'..", short_id(image_id))
     inspect = ImageInspect(**await state.client().images.inspect(image_id))
-    state.images[inspect.Id] = Image(
-        inspect,
-        [ImageHistoryElement(**hist) for hist in await state.client().images.history(inspect.Id)],
-    )
+    raw_history = await state.client().images.history(inspect.Id)
+    state.images[inspect.Id] = Image(inspect, [ImageHistoryElement(**hist) for hist in raw_history])
     if inspect.Parent:
         if inspect.Parent not in state.images:
             await register_image(state, inspect.Parent)
@@ -963,7 +969,11 @@ async def crawl_volumes(state: DockerState) -> None:
         log().debug("  %s", volume_name)
         # todo: proper register fn
         state.volumes[volume_name] = volume
-    state.volumes_crawled = True
+
+    if not state.volumes_crawled:
+        state.volumes_crawled = True
+        log().info("initial volume crawl done")
+
     if raw_volumes["Warnings"]:
         log().warning("  VolumesWarnings: %s", raw_volumes["Warnings"])
     for volume_name in list(state.volumes):
@@ -985,7 +995,11 @@ async def crawl_networks(state: DockerState) -> None:
         log().debug("  %s", net_id)
         # todo: proper register fn
         state.networks[net_id] = network
-    state.networks_crawled = True
+
+    if not state.networks_crawled:
+        state.networks_crawled = True
+        log().info("initial network crawl done")
+
     for net_id in list(state.networks):
         if net_id not in networks:
             log().error("registered network %s does not exist anymore", short_id(net_id))
@@ -1165,23 +1179,36 @@ async def main() -> None:
                     log().exception(mtext)
             elif mtype == "error":
                 log().error(mtext)
-            elif mtype in {"reference_update", "reference_del"}:
-                print(f"UPDATE REFERENCE {mtext}")
-                print(f"total references: {len(docker_state.last_referenced)}")
-            elif mtype in {"container_add", "container_del"}:
-                print(f"CONTAINER {mtype} {mtext}")
-                print(f"total containers: {len(docker_state.containers)}")
-            elif mtype == "container_update":
-                print(f"CONTAINER {mtype} {mtext}")
+            elif mtype in {"container_add", "container_del", "container_update"}:
+                cnt: Container = cast(Container, mobj)
+                log().info(
+                    "container info: %s / %s (%d total)",
+                    cnt.short_id,
+                    mtype,
+                    len(docker_state.containers),
+                )
             elif mtype in {"image_add", "image_del", "image_update"}:
-                print(f"CONTAINER {mtype} {mtext}")
-                print(f"total images: {len(docker_state.images)}")
+                image = docker_state.images[mtext]
+
+                log().info(
+                    "image info: %s / %s (%d total)",
+                    image.short_id,
+                    mtype,
+                    len(docker_state.images),
+                )
+            elif mtype in {"reference_update", "reference_del"}:
+                ident = cast(ImageIdent, mobj)
+                log().info(
+                    "reference updated: %s (%d total)",
+                    ident,
+                    len(docker_state.last_referenced),
+                )
             else:
                 log().error("don't know message type %s", mtype)
 
     logging.basicConfig(
-        format="│ %(name)-10s: %(message)s",
-        handlers=[RichHandler(show_path=False, markup=False, show_time=False)],
+        format="│ %(name)-10s │ %(message)s",
+        handlers=[RichHandler(show_path=False, markup=True, show_time=False)],
     )
     logging.getLogger().setLevel(logging.WARNING)
     log().setLevel(logging.DEBUG)

@@ -233,7 +233,7 @@ class DockerMon(App[None]):
         logging.getLogger().handlers = [handler := RichLogHandler(self._richlog)]
         handler.setFormatter(
             logging.Formatter(
-                "│ %(asctime)s | [grey53]%(funcName)-32s[/] │ [bold white]%(message)s[/]",
+                "│ %(asctime)s │ [grey53]%(funcName)-32s[/] │ [bold white]%(message)s[/]",
                 datefmt="%Y-%m-%d %H:%M:%S",
             )
         )
