@@ -908,13 +908,32 @@ async def register_image(state: DockerState, image_id: str) -> None:
     """Put an image into set of known images"""
     log().debug("fetch inspect data for and register image '%s'..", short_id(image_id))
     inspect = ImageInspect(**await state.client().images.inspect(image_id))
+
+    log().debug("fetch history")
     raw_history = await state.client().images.history(inspect.Id)
-    state.images[inspect.Id] = Image(inspect, [ImageHistoryElement(**hist) for hist in raw_history])
+
+    log().debug("fetch history done")
+
+    history = []
+    for raw_hist_element in raw_history:
+        hist_element = ImageHistoryElement(**raw_hist_element)
+        log().debug("found %s | %s", hist_element.Id, hist_element.CreatedBy)
+        history.append(hist_element)
+
+    log().debug("history completed")
+
+    state.images[inspect.Id] = Image(inspect, history)
+
+    log().debug("image registered")
+
     if inspect.Parent:
         if inspect.Parent not in state.images:
             await register_image(state, inspect.Parent)
         state.images[inspect.Parent].children.add(inspect.Id)
+
+    log().debug("inform..")
     await state.inform("image_add", inspect.Id)
+    log().debug("done")
 
 
 async def unregister_image(state: DockerState, image_id: str) -> None:
