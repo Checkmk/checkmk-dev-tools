@@ -33,6 +33,7 @@ from pathlib import Path
 from typing import cast
 
 from rich.logging import RichHandler
+from rich.markup import escape as markup_escape
 from textual import on, work
 from textual.app import App, ComposeResult
 from textual.events import Message
@@ -56,6 +57,10 @@ class RichLogHandler(RichHandler):
         self.widget: RichLog = widget
 
     def emit(self, record: logging.LogRecord) -> None:
+        record.args = record.args and tuple(
+            markup_escape(arg) if isinstance(arg, str) else arg for arg in record.args
+        )
+        record.msg = markup_escape(record.msg)
         self.widget.write(
             self.render(
                 record=record,
