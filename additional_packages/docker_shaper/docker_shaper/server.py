@@ -77,7 +77,18 @@ async def watch_fs_changes(global_state: dynamic.GlobalState):
     async for changes in (
         relevant_changes
         async for chunk in fs_changes(
-            Path(dynamic.__file__).parent, CONFIG_FILE.parent, min_interval=4, postpone=False
+            Path(dynamic.__file__).parent,
+            CONFIG_FILE.parent,
+            min_interval=4,
+            postpone=False,
+            ignore_pattern=(
+                "/.venv",
+                "/.git",
+                "/.mypy_cache",
+                "/dist",
+                "/__pycache__",
+                "container-logs",
+            ),
         )
         if (changed_files := set(chunk))
         for loaded_modules in (
