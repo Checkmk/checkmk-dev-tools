@@ -85,6 +85,7 @@ python3 -m pip install --user dist/checkmk_dev_tools-$(grep -E "^version.?=" pyp
 - [x] Containers: Store CPU / Memory usage over time
 - [x] Containers: store history
 - [x] Persist messages
+- [ ] Remove old message/container logs
 - [ ] Show different color for unmatched images
 - [ ] Warn about use of unpinned / upstream images
 - [ ] Handle 'build cache objects' (found on system prune)
@@ -105,7 +106,7 @@ python3 -m pip install --user dist/checkmk_dev_tools-$(grep -E "^version.?=" pyp
 ## Knowledge
 
 (just misc links to articles that helped me out)
-
+* [How to delete docker images from Nexus Repository 3](https://support.sonatype.com/hc/en-us/articles/360009696054-How-to-delete-docker-images-from-Nexus-Repository-3)
 * [Showing Text Box On Hover (In Table)](https://stackoverflow.com/questions/52562345/showing-text-box-on-hover-in-table)
 * [Beautiful Interactive Tables for your Flask Templates](https://blog.miguelgrinberg.com/post/beautiful-interactive-tables-for-your-flask-templates)
 * https://github.com/torfsen/python-systemd-tutorial
