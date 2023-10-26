@@ -19,6 +19,7 @@ from types import ModuleType
 
 from dateutil import tz
 from rich.logging import RichHandler
+from rich.markup import escape as markup_escape
 
 LOG_LEVELS = ("DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL")
 
@@ -62,12 +63,21 @@ def setup_logging(level: str = "INFO") -> None:
     ch.setLevel(getattr(logging, level.split("_")[-1]))
     ch.setFormatter(
         logging.Formatter(
-            "│ %(asctime)s | [grey]%(stack)-55s[/] │ [bold white]%(message)s[/]",
+            "│ %(asctime)s │ [grey]%(stack)-55s[/] │ [bold white]%(message)s[/]",
             datefmt="%Y-%m-%d %H:%M:%S",
         )
     )
     log().handlers = [ch]
     logging.getLogger("urllib3.connectionpool").setLevel(logging.INFO)
+
+    def markup_escaper(record:logging.LogRecord) -> bool:
+        record.args = record.args and tuple(
+            markup_escape(arg) if isinstance(arg, str) else arg for arg in record.args
+        )
+        record.msg = markup_escape(record.msg)
+        return True
+
+    ch.addFilter(markup_escaper)
 
     # https://stackoverflow.com/questions/76788727/how-can-i-change-the-debug-level-and-format-for-the-quart-i-e-hypercorn-logge
     # https://pgjones.gitlab.io/hypercorn/how_to_guides/logging.html#how-to-log
