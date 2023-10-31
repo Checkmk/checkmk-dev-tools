@@ -63,8 +63,8 @@ python3 -m pip install --user dist/checkmk_dev_tools-$(grep -E "^version.?=" pyp
 ## Todo
 
 - [x] Fix: stuck auto-reload: was: postpone=True + monitoring log
-- [ ] Fix: crawl-images should fix parents not having them listed
-- [ ] Fix: stuck crawl images
+- [x] Fix: crawl-images should fix parents not having them listed
+- [-] Fix: stuck crawl images (too many async requests, does not happen in production)
 - [ ] Fix: `'677aff0727' could not be removed: DockerError(404, 'No such image: 677aff0727:latest')`
 - [ ] Fix: `tried to remove container 4f5fb0848c unknown to us`
 

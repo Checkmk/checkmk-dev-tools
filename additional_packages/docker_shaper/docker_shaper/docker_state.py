@@ -750,6 +750,8 @@ async def container_from(docker_client: Docker, ident: str) -> None | DockerCont
 
 async def register_container(state: DockerState, container: DockerContainer) -> None:
     """Put a container into set of known containers"""
+    if container.id in state.containers:
+        return
     log().debug("register container %s", container.id[:10])
     state.containers[container.id] = Container(container)
     asyncio.ensure_future(watch_container(state, container))
@@ -906,8 +908,15 @@ async def image_from(docker_client: Docker, ident: str) -> None | ImageInspect:
 
 async def register_image(state: DockerState, image_id: str) -> None:
     """Put an image into set of known images"""
+    if image_id in state.images:
+        return
+
     log().debug("fetch inspect data for and register image '%s'..", short_id(image_id))
     inspect = ImageInspect(**await state.client().images.inspect(image_id))
+
+    if inspect.Id in state.images:
+        return
+
     raw_history = await state.client().images.history(inspect.Id)
     state.images[inspect.Id] = Image(inspect, [ImageHistoryElement(**hist) for hist in raw_history])
     if inspect.Parent:
