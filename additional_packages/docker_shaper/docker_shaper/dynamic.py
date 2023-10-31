@@ -172,8 +172,10 @@ def handle_docker_state_message(
                 raise mobj  # type: ignore[misc]
             except Exception:  # pylint: disable=broad-except
                 report(global_state, message=mtext)
-        elif mtype == "error":
+
+        elif mtype in {"error", "warning", "info"}:
             report(global_state, mtype, mtext, mobj)
+
         elif mtype in {"container_add", "container_del", "container_update"}:
             log().info(
                 "container info: %s / %s (%d total)",
@@ -343,9 +345,10 @@ async def dump_global_state(global_state: GlobalState):
     # handle_branch(dep_tree)
 
     global_state.counter += 1
+    all_tasks = asyncio.all_tasks()
     coro_name_count = Counter(
         name
-        for t in asyncio.all_tasks()
+        for t in all_tasks
         if (coro := t.get_coro())
         if (name := getattr(coro, "__name__"))
         # ignore
@@ -388,7 +391,10 @@ async def dump_global_state(global_state: GlobalState):
     print()
     print(f"STATE: ====[ {global_state.hostname } ]===============================================")
     print(f"STATE: frame counter:     {global_state.counter}")
-    print(f"STATE: event horizon:     {global_state.docker_state.event_horizon}")
+    print(
+        f"STATE: event horizon:     {date_str(global_state.docker_state.event_horizon)}"
+        f" / {age_str(datetime.now(), global_state.docker_state.event_horizon)}"
+    )
     print(
         f"STATE: intervals:         "
         f"{', '.join('='.join(map(str, i)) for i in global_state.intervals.items())}"
@@ -402,7 +408,7 @@ async def dump_global_state(global_state: GlobalState):
     print(f"STATE: tag_rules:         {len(global_state.tag_rules)}")
     print(f"STATE: connections:       {len(global_state.update_mqueues)}")
     print(
-        f"STATE: missing / unknown tasks:"
+        f"STATE: tasks: {len(all_tasks)}, missing / unknown:"
         f" {(expectd_coro_names - coro_name_count.keys()) or 'none'} / "
         f" {(coro_name_count.keys() - expectd_coro_names) or 'none'}"
     )
@@ -871,7 +877,7 @@ async def delete_container(global_state: GlobalState, ident: str | Container) ->
 
     report(
         global_state,
-        "warn",
+        "warning",
         f"force removing container {short_id(container.id)}",
         container,
     )
@@ -952,7 +958,7 @@ async def cleanup(global_state: GlobalState) -> None:
                 await DockerVolume(global_state.docker_client, volume_name).delete()
                 report(
                     global_state,
-                    "warn",
+                    "warning",
                     f"volume {short_id(volume_name)} has not been removed automatically",
                 )
             except DockerError as exc:
@@ -978,7 +984,7 @@ def report(
     extra: None | object = None,
 ) -> None:
     """Report an incident - maybe good or bad"""
-    if msg_type is None and sys.exc_info()[1]:
+    if sys.exc_info()[1] and msg_type in {None, "exception"}:
         log().exception(message)
         traceback_str = traceback.format_exc().strip("\n")
         type_str, msg_str, extra_str = (
@@ -988,14 +994,19 @@ def report(
         )
     else:
         type_str, msg_str, extra_str = (msg_type or "debug", message or "--", extra and str(extra))
-    icon = {"info": "🔵", "warn": "🟠", "error": "🔴", "exception": "🟣"}.get(type_str, "⚪")
+        log().log(getattr(logging, type_str.upper(), logging.WARNING), msg_str)
+
+    icon = {"info": "🔵", "warning": "🟠", "error": "🔴", "exception": "🟣"}.get(type_str, "⚪")
     now = datetime.now()
 
     BASE_DIR.mkdir(parents=True, exist_ok=True)
     with open(
         BASE_DIR / f"messages-{now.strftime('%Y.%m.%d')}.log", "a", encoding="utf-8"
     ) as log_file:
-        log_file.write(f"{icon} {date_str(now)} │ {type_str:<10s} │ {msg_str} {extra_str or  ''}\n")
+        log_file.write(
+            f"{icon} {date_str(now)} │ {os.getpid()} │ {type_str:<10s}"
+            f" │ {msg_str} {extra_str or  ''}\n"
+        )
 
     global_state.messages.insert(0, (int(now.timestamp()), type_str, msg_str, extra_str))
 

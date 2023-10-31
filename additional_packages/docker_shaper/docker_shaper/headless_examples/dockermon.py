@@ -178,10 +178,16 @@ class DockerMon(App[None]):
             elif mtype == "error":
                 log().error(mtext)
 
+            elif mtype == "warning":
+                log().warning(mtext)
+
+            elif mtype == "info":
+                log().info(mtext)
+
             elif mtype in {"container_add", "container_del", "container_update"}:
                 cnt: Container = cast(Container, mobj)
                 log().info(
-                    "container info: %s / %s (%d total)",
+                    "container info: '%s' / %s (%d total)",
                     cnt.short_id,
                     mtype,
                     len(self.docker_state.containers),
@@ -199,7 +205,7 @@ class DockerMon(App[None]):
                 assert hasattr(mobj, "short_id")
 
                 log().info(
-                    "image info: %s / %s (%d total)",
+                    "image info: '%s' / %s (%d total)",
                     short_id(image_id),
                     mtype,
                     len(self.docker_state.images),
@@ -219,7 +225,7 @@ class DockerMon(App[None]):
                 volume_id = mtext
 
                 log().info(
-                    "volume info: %s / %s (%d total)",
+                    "volume info: '%s' / %s (%d total)",
                     short_id(volume_id),
                     mtype,
                     len(self.docker_state.volumes),
@@ -236,7 +242,7 @@ class DockerMon(App[None]):
                 network_id = mtext
 
                 log().info(
-                    "network info: %s / %s (%d total)",
+                    "network info: '%s' / %s (%d total)",
                     short_id(network_id),
                     mtype,
                     len(self.docker_state.networks),

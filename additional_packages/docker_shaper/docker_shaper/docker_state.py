@@ -40,6 +40,8 @@ from docker_shaper.utils import date_from
 MessageType: TypeAlias = Literal[
     "exception",
     "error",
+    "warning",
+    "info",
     "reference_update",
     "reference_del",
     "container_add",
@@ -917,20 +919,33 @@ async def register_image(state: DockerState, image_id: str) -> None:
     """Put an image into set of known images"""
     if image_id in state.images:
         return
-
-    log().debug("fetch inspect data for and register image '%s'..", short_id(image_id))
+    log().debug("image '%s': fetch inspect/history data..", short_id(image_id))
     inspect = ImageInspect(**await state.client().images.inspect(image_id))
 
     if inspect.Id in state.images:
         return
 
     raw_history = await state.client().images.history(inspect.Id)
-    state.images[inspect.Id] = Image(inspect, [ImageHistoryElement(**hist) for hist in raw_history])
+
+    history = []
+    for raw_hist_element in raw_history:
+        hist_element = ImageHistoryElement(**raw_hist_element)
+        # log().debug("found %s | %s", hist_element.Id, hist_element.CreatedBy)
+        history.append(hist_element)
+
+    state.images[inspect.Id] = Image(inspect, history)
+
     if inspect.Parent:
         if inspect.Parent not in state.images:
+            log().debug(
+                "image '%s': register parent %s", short_id(image_id), short_id(inspect.Parent)
+            )
             await register_image(state, inspect.Parent)
         state.images[inspect.Parent].children.add(inspect.Id)
-    await state.inform("image_add", inspect.Id)
+
+    log().debug("image '%s': registered", short_id(image_id))
+
+    await state.inform("image_add", inspect.Id, state.images[inspect.Id])
 
 
 async def unregister_image(state: DockerState, image_id: str) -> None:
@@ -1296,6 +1311,10 @@ async def main() -> None:
                     log().exception(mtext)
             elif mtype == "error":
                 log().error(mtext)
+            elif mtype == "warning":
+                log().warning(mtext)
+            elif mtype == "info":
+                log().info(mtext)
             elif mtype in {"container_add", "container_del", "container_update"}:
                 cnt: Container = cast(Container, mobj)
                 log().info(

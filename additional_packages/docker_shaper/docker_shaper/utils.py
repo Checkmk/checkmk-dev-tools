@@ -70,7 +70,7 @@ def setup_logging(level: str = "INFO") -> None:
     log().handlers = [ch]
     logging.getLogger("urllib3.connectionpool").setLevel(logging.INFO)
 
-    def markup_escaper(record:logging.LogRecord) -> bool:
+    def markup_escaper(record: logging.LogRecord) -> bool:
         record.args = record.args and tuple(
             markup_escape(arg) if isinstance(arg, str) else arg for arg in record.args
         )
