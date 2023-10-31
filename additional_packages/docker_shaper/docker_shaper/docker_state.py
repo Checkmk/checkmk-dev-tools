@@ -18,6 +18,7 @@ from asyncio import StreamReader
 from asyncio.subprocess import PIPE, create_subprocess_exec
 from collections.abc import (
     AsyncIterator,
+    Iterable,
     Mapping,
     MutableMapping,
     MutableSequence,
@@ -30,6 +31,8 @@ from typing import Any, ClassVar, Literal, Type, TypeAlias, cast
 
 from aiodocker import Docker, DockerError
 from aiodocker.containers import DockerContainer
+from aiodocker.networks import DockerNetwork
+from aiodocker.volumes import DockerVolume
 from pydantic import BaseModel, ConfigDict, Json, model_validator
 
 from docker_shaper.utils import date_from
@@ -45,6 +48,10 @@ MessageType: TypeAlias = Literal[
     "image_add",
     "image_del",
     "image_update",
+    "volume_add",
+    "volume_del",
+    "network_add",
+    "network_del",
 ]
 MType: TypeAlias = tuple[MessageType, str, None | object]
 ImageIdent: TypeAlias = str | tuple[None | str, str, str]
@@ -975,11 +982,8 @@ async def crawl_volumes(state: DockerState) -> None:
         if volume_name in state.volumes:
             continue
         if state.images_crawled:
-            # todo: should be 'error' when recognized by events
-            log().debug("  found unregistered volume %s", short_id(volume_name))
-        log().debug("  %s", volume_name)
-        # todo: proper register fn
-        state.volumes[volume_name] = volume
+            log().error("  found unregistered volume %s", short_id(volume_name))
+        await register_volume(state, volume)
 
     if not state.volumes_crawled:
         state.volumes_crawled = True
@@ -987,12 +991,51 @@ async def crawl_volumes(state: DockerState) -> None:
 
     if raw_volumes["Warnings"]:
         log().warning("  VolumesWarnings: %s", raw_volumes["Warnings"])
+
+    await cleanup_volume_registrations(state, volumes.keys())
+
+
+async def cleanup_volume_registrations(
+    state: DockerState, volume_names: None | Iterable[str] = None
+) -> None:
+    """Cleans up volume registrations"""
+    volumes = volume_names or await state.client().volumes.list()  # type: ignore[no-untyped-call]
     for volume_name in list(state.volumes):
         if volume_name not in volumes:
-            # todo: should be 'error' when recognized by events
-            log().debug("registered volumes %s does not exist anymore", short_id(volume_name))
-            # todo: proper register fn
-            del state.volumes[volume_name]
+            # we don't get network delete events, so this is not an 'error'
+            log().debug("registered volume '%s' does not exist anymore", short_id(volume_name))
+            await unregister_volume(state, volume_name)
+
+
+async def register_volume(state: DockerState, volume_or_id: str | Volume) -> None:
+    """Put a volume into set of known volumes"""
+    volume_name = volume_or_id.Name if isinstance(volume_or_id, Volume) else volume_or_id
+    if volume_name in state.volumes:
+        return
+
+    log().debug("volume '%s': fetch data..", short_id(volume_name))
+    volume = (
+        volume_or_id
+        if isinstance(volume_or_id, Volume)
+        else Volume(
+            **await DockerVolume(
+                state.client(),
+                volume_or_id,
+            ).show()  # type: ignore[no-untyped-call]
+        )
+    )
+    state.volumes[volume_name] = volume
+
+    await state.inform("volume_add", volume_name, volume)
+
+
+async def unregister_volume(state: DockerState, volume_id: str) -> None:
+    """Remove a volume from set of known volumes"""
+    try:
+        del state.volumes[volume_id]
+        await state.inform("volume_del", volume_id)
+    except KeyError:
+        await state.inform("error", f"tried to remove volume {short_id(volume_id)} unknown to us")
 
 
 async def crawl_networks(state: DockerState) -> None:
@@ -1003,22 +1046,60 @@ async def crawl_networks(state: DockerState) -> None:
         if net_id in state.networks:
             continue
         if state.images_crawled:
-            # todo: should be 'error' when recognized by events
-            log().debug("  found unregistered network %s", net_id)
-        log().debug("  %s", net_id)
-        # todo: proper register fn
-        state.networks[net_id] = network
+            log().error("  found unregistered network %s", short_id(net_id))
+        await register_network(state, network)
 
     if not state.networks_crawled:
         state.networks_crawled = True
         log().info("initial network crawl done")
 
+    await cleanup_network_registrations(state, networks.keys())
+
+
+async def cleanup_network_registrations(
+    state: DockerState, networks: None | Iterable[str] = None
+) -> None:
+    """Cleans up network registrations"""
+    network_ids = networks or await state.client().networks.list()
     for net_id in list(state.networks):
-        if net_id not in networks:
-            # todo: should be 'error' when recognized by events
+        if net_id not in network_ids:
+            # we don't get network delete events, so this is not an 'error'
             log().debug("registered network %s does not exist anymore", short_id(net_id))
-            # todo: proper register fn
-            del state.networks[net_id]
+            await unregister_network(state, net_id)
+
+
+async def register_network(state: DockerState, network_or_id: str | Network) -> None:
+    """Put a network into set of known networks"""
+    network_id = network_or_id.Name if isinstance(network_or_id, Network) else network_or_id
+    if network_id in state.networks:
+        return
+
+    log().debug(
+        "network '%s': fetch data..",
+        short_id(network_id),
+    )
+    network = (
+        network_or_id
+        if isinstance(network_or_id, Network)
+        else Network(
+            **await DockerNetwork(
+                state.client(),
+                network_or_id,
+            ).show()  # type: ignore[no-untyped-call]
+        )
+    )
+    state.networks[network.Id] = network
+
+    await state.inform("network_add", network.Id, network)
+
+
+async def unregister_network(state: DockerState, network_id: str) -> None:
+    """Remove a network from set of known networks"""
+    try:
+        del state.networks[network_id]
+        await state.inform("network_del", network_id)
+    except KeyError:
+        await state.inform("error", f"tried to remove network {short_id(network_id)} unknown to us")
 
 
 async def register_reference(state: DockerState, ident: str, timestamp: float) -> None:
@@ -1150,22 +1231,47 @@ async def handle_docker_event(state: DockerState, event: DockerEvent) -> None:
             return
 
     elif event_type == "network":
+        if event_action == "connect":
+            await register_network(state, event_id)
+            return
+
+        if event_action == "destroy":
+            await unregister_network(state, event_id)
+            return
+
+        if event_action == "prune":
+            # cleanup networks - there seems to be no destroy
+            await cleanup_network_registrations(state)
+            return
+
         if event_action in {
-            "connect",
             "disconnect",
-            "destroy",
-            "prune",
         }:
             return
 
     elif event_type == "volume":
+        if event_action == "create":
+            await register_volume(state, event_id)
+            return
+
+        if event_action == "destroy":
+            await unregister_volume(state, event_id)
+            return
+
+        if event_action == "mount":
+            # todo: reference
+            return
+
+        if event_action == "prune":
+            # cleanup volumes - there seems to be no destroy
+            await cleanup_volume_registrations(state)
+            return
+
         if event_action in {
-            "create",
-            "mount",
             "unmount",
-            "destroy",
         }:
             return
+
     elif event_type == "builder":
         if event_action in {
             "prune",

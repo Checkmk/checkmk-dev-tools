@@ -208,6 +208,27 @@ def handle_docker_state_message(
                 mtype,
                 len(global_state.docker_state.images),
             )
+
+        elif mtype in {"volume_add", "volume_del"}:
+            volume_id = mtext
+
+            log().info(
+                "volume info: '%s' / %s (%d total)",
+                short_id(volume_id),
+                mtype,
+                len(global_state.docker_state.volumes),
+            )
+
+        elif mtype in {"network_add", "network_del"}:
+            network_id = mtext
+
+            log().info(
+                "network info: '%s' / %s (%d total)",
+                short_id(network_id),
+                mtype,
+                len(global_state.docker_state.networks),
+            )
+
         elif mtype in {"reference_update", "reference_del"}:
             log().info(
                 "reference updated: %s (%d total)",

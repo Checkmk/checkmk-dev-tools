@@ -41,7 +41,7 @@ from textual.scrollbar import ScrollTo
 from textual.widgets import RichLog, Tree
 
 from docker_shaper import docker_state, dynamic, utils
-from docker_shaper.dynamic import Container, ImageIdent
+from docker_shaper.dynamic import Container, ImageIdent, Network, Volume, short_id
 
 
 def log() -> logging.Logger:
@@ -174,6 +174,7 @@ class DockerMon(App[None]):
 
             if mtype == "exception":
                 log().exception("%s: %s", mtext, mobj)
+
             elif mtype == "error":
                 log().error(mtext)
 
@@ -194,21 +195,59 @@ class DockerMon(App[None]):
                     del container_nodes[cnt.id]
 
             elif mtype in {"image_add", "image_del", "image_update"}:
-                image = self.docker_state.images[mtext]
+                image_id = mtext
+                assert hasattr(mobj, "short_id")
 
                 log().info(
                     "image info: %s / %s (%d total)",
-                    image.short_id,
+                    short_id(image_id),
                     mtype,
                     len(self.docker_state.images),
                 )
+                if mtype == "image_del":
+                    if image_id in image_nodes:
+                        image_nodes[image_id].remove()
+                        del image_nodes[image_id]
+                    continue
+                image = self.docker_state.images[image_id]
                 if mtype == "image_add" and image.id not in image_nodes:
                     image_nodes[image.id] = containers_node.add(f"{image}")
-                if mtype == "image_del" and image.id in image_nodes:
-                    image_nodes[image.id].remove()
-                    del image_nodes[image.id]
                 if mtype == "image_update":
                     image_nodes[image.id].set_label(f"{image} - +")
+
+            elif mtype in {"volume_add", "volume_del"}:
+                volume_id = mtext
+
+                log().info(
+                    "volume info: %s / %s (%d total)",
+                    short_id(volume_id),
+                    mtype,
+                    len(self.docker_state.volumes),
+                )
+                if mtype == "volume_add" and volume_id not in volume_nodes:
+                    vol: Volume = cast(Volume, mobj)
+                    volume_nodes[volume_id] = volumes_node.add(f"{vol}")
+                if mtype == "volume_del":
+                    if volume_id in volume_nodes:
+                        volume_nodes[volume_id].remove()
+                        del volume_nodes[volume_id]
+
+            elif mtype in {"network_add", "network_del"}:
+                network_id = mtext
+
+                log().info(
+                    "network info: %s / %s (%d total)",
+                    short_id(network_id),
+                    mtype,
+                    len(self.docker_state.networks),
+                )
+                if mtype == "network_add" and network_id not in network_nodes:
+                    netw: Network = cast(Network, mobj)
+                    network_nodes[network_id] = networks_node.add(f"{netw}")
+                if mtype == "network_del":
+                    if network_id in network_nodes:
+                        network_nodes[network_id].remove()
+                        del network_nodes[network_id]
 
             elif mtype in {"reference_update", "reference_del"}:
                 ident = cast(ImageIdent, mobj)
