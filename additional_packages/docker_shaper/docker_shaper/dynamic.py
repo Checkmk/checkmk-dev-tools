@@ -145,8 +145,13 @@ class GlobalState:
 async def run_listen_messages(global_state: GlobalState) -> None:
     """Print messages"""
     (BASE_DIR / "container-logs").mkdir(parents=True, exist_ok=True)
-    async for mtype, mtext, mobj in global_state.docker_state.wait_for_change():
-        handle_docker_state_message(global_state, mtype, mtext, mobj)
+    while True:
+        try:
+            async for mtype, mtext, mobj in global_state.docker_state.wait_for_change():
+                handle_docker_state_message(global_state, mtype, mtext, mobj)
+        except Exception:  # pylint: disable=broad-except
+            report(global_state)
+            await asyncio.sleep(5)
 
 
 def log_file_name(cnt: Container) -> Path:
@@ -188,6 +193,8 @@ def handle_docker_state_message(
             # assert cnt.show
             with open(log_file_name(cnt), "a", encoding="utf-8") as log_file:
                 if mtype == "container_add":
+                    if not cnt.show:
+                        return
                     write_log_entry(log_file, cnt.show.model_dump(mode="json"))
                 if mtype == "container_del":
                     # write_log_entry(log_file, cnt.show.model_dump(mode="json"))
