@@ -8,6 +8,7 @@ import asyncio
 import importlib
 import logging
 import sys
+from contextlib import suppress
 from pathlib import Path
 
 from apparat import fs_changes
@@ -122,19 +123,16 @@ async def watch_fs_changes(global_state: dynamic.GlobalState):
         except Exception:  # pylint: disable=broad-except
             dynamic.report(global_state)
             await asyncio.sleep(5)
-    assert False
 
 
 def serve() -> None:
     """Instantiate DockerState and run the quart server"""
-    app = Quart(__name__)
-    app.config["TEMPLATES_AUTO_RELOAD"] = True
-
-    global_state = dynamic.GlobalState()
-    load_config(CONFIG_FILE, global_state)
     dynamic.setup_introspection()
 
+    app = Quart(__name__)
+
     async def generic_response(endpoint: str) -> Response:
+        global_state = app.config["GLOBAL_STATE"]
         if not hasattr(dynamic, f"response_{endpoint}"):
             return f"Not known: {endpoint}"
         try:
@@ -222,10 +220,12 @@ def serve() -> None:
         """Provides websocket for updates on changes
         see https://pgjones.gitlab.io/quart/how_to_guides/websockets.html
         """
-        await dynamic.response_control_ws(global_state)
+        await dynamic.response_control_ws(app.config["GLOBAL_STATE"])
 
     @app.before_serving
     async def start_background_tasks() -> None:
+        global_state = app.config["GLOBAL_STATE"]
+
         asyncio.ensure_future(global_state.docker_state.run())
         asyncio.ensure_future(dynamic.run_listen_messages(global_state))
         asyncio.ensure_future(watch_fs_changes(global_state))
@@ -233,12 +233,17 @@ def serve() -> None:
         asyncio.ensure_future(schedule_print_state(global_state))
         asyncio.ensure_future(schedule_cleanup(global_state))
 
-    dynamic.report(global_state, "info", "docker-shaper started")
+        dynamic.report(global_state, "info", "docker-shaper started")
 
-    app.run(
-        host="0.0.0.0",
-        port=5432,
-        debug=False,
-        use_reloader=False,
-        loop=asyncio.get_event_loop(),
-    )
+    with dynamic.GlobalState() as global_state:
+        load_config(CONFIG_FILE, global_state)
+        app.config["TEMPLATES_AUTO_RELOAD"] = True
+        app.config["GLOBAL_STATE"] = global_state
+        with suppress(asyncio.CancelledError):
+            app.run(
+                host="0.0.0.0",
+                port=5432,
+                debug=False,
+                use_reloader=False,
+                loop=asyncio.get_event_loop(),
+            )

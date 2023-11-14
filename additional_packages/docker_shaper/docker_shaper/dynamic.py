@@ -80,6 +80,7 @@ class GlobalState:
 
     def __init__(self) -> None:
         self.docker_state = DockerState()
+        self.docker_state.import_references(BASE_DIR / "event_horizon.json")
         self.intervals = {
             "state": 2,
             "image_stats": 2,
@@ -97,6 +98,12 @@ class GlobalState:
         self.expiration_ages = {}
         self.update_mqueues = set()
         self.additional_values = {}
+
+    def __enter__(self) -> "GlobalState":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.docker_state.export_references(BASE_DIR / "event_horizon.json")
 
     def new_update_queue(self) -> asyncio.Queue[str]:
         """Creates and returns a new message queue"""
@@ -180,6 +187,14 @@ def handle_docker_state_message(
 
         elif mtype in {"error", "warning", "info"}:
             report(global_state, mtype, mtext, mobj)
+
+        elif mtype == "client_disconnect":
+            report(
+                global_state,
+                "warning",
+                "got None from docker events - export references and shutdown",
+            )
+            raise SystemExit(1)
 
         elif mtype in {"container_add", "container_del", "container_update"}:
             log().info(
@@ -394,39 +409,53 @@ async def dump_global_state(global_state: GlobalState):
         "run_crawl_volumes",
         "monitor_events",
     }
+    missing_tasks = expectd_coro_names - coro_name_count.keys()
+
+    if missing_tasks:
+        report(
+            global_state,
+            "error",
+            f"mandatory tasks are not running anymore: {missing_tasks} => terminate!",
+        )
+        await asyncio.sleep(1)  # wait for message queues to be eaten up
+        raise SystemExit(1)
 
     print()
-    print(f"STATE: ====[ {global_state.hostname } ]===============================================")
-    print(f"STATE: frame counter:     {global_state.counter}")
+    print(f"│=====[ http://{global_state.hostname}:5432/ ]===================================")
     print(
-        f"STATE: event horizon:     {date_str(global_state.docker_state.event_horizon)}"
+        f"│ started / frame:   {date_str(global_state.docker_state.started_at)}"
+        f" / {age_str(datetime.now(), global_state.docker_state.started_at)}"
+        f" / {global_state.counter}"
+    )
+    print(
+        f"│ event horizon:     {date_str(global_state.docker_state.event_horizon)}"
         f" / {age_str(datetime.now(), global_state.docker_state.event_horizon)}"
     )
     print(
-        f"STATE: intervals:         "
+        f"│ intervals:         "
         f"{', '.join('='.join(map(str, i)) for i in global_state.intervals.items())}"
     )
-    print(f"STATE: containers:        {len(global_state.containers)}")
-    print(f"STATE: images:            {len(global_state.images)}")
-    # print(f"STATE: image tree depth: {max_depth}")
-    print(f"STATE: volumes:           {len(global_state.volumes)}")
-    print(f"STATE: networks:          {len(global_state.networks)}")
-    print(f"STATE: references:        {len(global_state.last_referenced)}")
-    print(f"STATE: tag_rules:         {len(global_state.tag_rules)}")
-    print(f"STATE: connections:       {len(global_state.update_mqueues)}")
+    print(f"│ containers:        {len(global_state.containers)}")
+    print(f"│ images:            {len(global_state.images)}")
+    # print(f"│ image tree depth: {max_depth}")
+    print(f"│ volumes:           {len(global_state.volumes)}")
+    print(f"│ networks:          {len(global_state.networks)}")
+    print(f"│ references:        {len(global_state.last_referenced)}")
+    print(f"│ tag_rules:         {len(global_state.tag_rules)}")
+    print(f"│ connections:       {len(global_state.update_mqueues)}")
     print(
-        f"STATE: tasks: {len(all_tasks)}, missing / unknown:"
-        f" {(expectd_coro_names - coro_name_count.keys()) or 'none'} / "
+        f"│ tasks:             {len(all_tasks)}, missing / unknown:"
+        f" {missing_tasks or 'none'} / "
         f" {(coro_name_count.keys() - expectd_coro_names) or 'none'}"
     )
     print(
-        f"STATE: initially crawled:"
+        f"│ initially crawled:"
         f" containers: {global_state.docker_state.containers_crawled}"
         f" images: {global_state.docker_state.images_crawled}"
         f" volumes: {global_state.docker_state.volumes_crawled}"
         f" networks: {global_state.docker_state.networks_crawled}"
     )
-    print("STATE: ==================================================================")
+    print("│===================================================================")
     print()
 
 
@@ -1011,8 +1040,9 @@ def report(
         BASE_DIR / f"messages-{now.strftime('%Y.%m.%d')}.log", "a", encoding="utf-8"
     ) as log_file:
         log_file.write(
-            f"{icon} {date_str(now)} │ {os.getpid()} │ {type_str:<10s}"
-            f" │ {msg_str} {extra_str or  ''}\n"
+            f"{icon} {type_str:<9s}"
+            f" │ {date_str(now)} ({age_str(datetime.now(), global_state.docker_state.started_at)})"
+            f" │ {os.getpid()} │ {msg_str} {extra_str or  ''}\n"
         )
 
     global_state.messages.insert(0, (int(now.timestamp()), type_str, msg_str, extra_str))

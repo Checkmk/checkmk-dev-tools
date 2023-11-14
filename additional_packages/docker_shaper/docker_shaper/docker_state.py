@@ -11,6 +11,7 @@
 # pylint: disable=import-error  # no clue why..
 
 import asyncio
+import json
 import logging
 import re
 import time
@@ -27,6 +28,7 @@ from collections.abc import (
 from contextlib import suppress
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Any, ClassVar, Literal, Type, TypeAlias, cast
 
 from aiodocker import Docker, DockerError
@@ -42,6 +44,7 @@ MessageType: TypeAlias = Literal[
     "error",
     "warning",
     "info",
+    "client_disconnect",
     "reference_update",
     "reference_del",
     "container_add",
@@ -546,6 +549,8 @@ class DockerEvent(Deserializable):
 class DockerState:
     """Gathers all information about local docker service"""
 
+    started_at: int
+
     containers: MutableMapping[str, Container]
     containers_crawled: bool
     containers_crawl_interval: int
@@ -566,6 +571,8 @@ class DockerState:
     last_referenced: MutableMapping[ImageIdent, int]
 
     def __init__(self) -> None:
+        self.started_at = int(time.time())
+
         self.containers = {}
         self.containers_crawled = False
         self.containers_crawl_interval = 120
@@ -582,7 +589,7 @@ class DockerState:
         self.networks_crawled = False
         self.networks_crawl_interval = 120
 
-        self.event_horizon = int(time.time())
+        self.event_horizon = self.started_at
         self.last_referenced = {}
 
         self.docker_client: None | Docker = None
@@ -603,6 +610,7 @@ class DockerState:
         try:
             async with Docker() as self.docker_client:
                 await asyncio.gather(
+                    # self.__disconnect(),
                     self.monitor_events(),
                     self.run_crawl_containers(),
                     self.run_crawl_images(),
@@ -612,6 +620,13 @@ class DockerState:
                 self.docker_client = None
         except Exception:  # pylint: disable=broad-except
             log().exception("in DockerState.run()")
+
+    async def __disconnect(self) -> None:  # pylint: disable=unused-private-member
+        """Simulate a sudden disconnect from Docker socket"""
+        await asyncio.sleep(60)
+        if self.docker_client:
+            log().info("close!")
+            await self.docker_client.close()
 
     def client(self) -> Docker:
         """Returns the current Docker client and raises if not available (for typing reasons)"""
@@ -654,7 +669,15 @@ class DockerState:
                         await handle_docker_event(self, event_buffer.pop(0))
                     await handle_docker_event(self, event)
                 else:
+                    log().info(
+                        "postpone event (C: %s, I: %s, V: %s, N: %s)",
+                        self.containers_crawled,
+                        self.images_crawled,
+                        self.volumes_crawled,
+                        self.networks_crawled,
+                    )
                     event_buffer.append(event)
+
             except Exception as exc:  # pylint: disable=broad-except
                 log().error("Error while handling event: %s", str(_raw_e))
                 self.inform("exception", "in monitor_events()", exc)
@@ -698,6 +721,14 @@ class DockerState:
     async def prune_builder_cache(self) -> tuple[Sequence[str], Sequence[str], int]:
         """Runs `docker builder prune` in background"""
         return await prune_builder_cache()
+
+    def export_references(self, filepath: Path) -> None:
+        """Writes event horizon and image references to disk"""
+        export_references(self, filepath)
+
+    def import_references(self, filepath: Path) -> None:
+        """Reads event horizon and image references from disk if applicable"""
+        import_references(self, filepath)
 
 
 async def prune_builder_cache() -> tuple[Sequence[str], Sequence[str], int]:
@@ -1295,6 +1326,44 @@ async def handle_docker_event(state: DockerState, event: DockerEvent) -> None:
     log().warning("unknown type/operator %s %s", event_type, event_action)
 
 
+def export_references(state: DockerState, filepath: Path) -> None:
+    """Write to disk all we need to restart without losing track of image references"""
+    with open(filepath, "w", encoding="utf-8") as eh_file:
+        json.dump(
+            {
+                "created": datetime.now().strftime("%Y.%m.%d-%H.%M.%S"),
+                "event_horizon": state.event_horizon,
+                "references": {
+                    ",".join(map(str, key)) if isinstance(key, tuple) else str: value
+                    for key, value in state.last_referenced.items()
+                },
+            },
+            eh_file,
+            indent=2,
+        )
+        log().info("exported image references")
+
+
+def import_references(state: DockerState, filepath: Path) -> None:
+    """Load image reference information from disk and restore event horizon if not too old"""
+    with suppress(FileNotFoundError):
+        with open(filepath, encoding="utf-8") as eh_file:
+            reference_data = json.load(eh_file)
+            created = datetime.strptime(reference_data["created"], "%Y.%m.%d-%H.%M.%S")
+            references = {
+                splitted[0] if len(splitted) == 1 else tuple(splitted): value
+                for key, value in reference_data["references"].items()
+                for splitted in (key.split(","),)
+            }
+            state.inform("info", "imported image references")
+            state.last_referenced = references
+            if (datetime.now() - created).total_seconds() < 60:
+                state.inform("info", "restored event horizon")
+                state.event_horizon = reference_data["event_horizon"]
+            else:
+                state.inform("warning", "event horizon too old to restore")
+
+
 async def main() -> None:
     """Only for debugging purposes:
     Asynchronously run reference application"""
@@ -1314,6 +1383,8 @@ async def main() -> None:
                 log().warning(mtext)
             elif mtype == "info":
                 log().info(mtext)
+            elif mtype == "client_disconnect":
+                raise SystemExit(1)
             elif mtype in {"container_add", "container_del", "container_update"}:
                 cnt: Container = cast(Container, mobj)
                 log().info(

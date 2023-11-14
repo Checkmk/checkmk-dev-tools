@@ -31,7 +31,12 @@ def log() -> logging.Logger:
 
 def stack_str(depth: int = 0):
     def stack_fns():
-        stack = list(reversed(traceback.extract_stack(sys._getframe(depth))))
+        stack = list(
+            reversed(
+                traceback.extract_stack(sys._getframe(depth))  # pylint: disable=protected-access
+            )
+        )
+
         for site in stack:
             if site.filename != stack[0].filename or site.name == "<module>":
                 break
@@ -46,7 +51,7 @@ def setup_logging(level: str = "INFO") -> None:
     class CustomLogger(logging.getLoggerClass()):
         """Logger with stack information"""
 
-        def makeRecord(
+        def makeRecord(  # pylint: disable=too-many-arguments
             self, name, level, fn, lno, msg, args, exc_info, func=None, extra=None, sinfo=None
         ):
             if extra is None:

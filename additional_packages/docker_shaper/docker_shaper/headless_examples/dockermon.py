@@ -184,6 +184,9 @@ class DockerMon(App[None]):
             elif mtype == "info":
                 log().info(mtext)
 
+            elif mtype == "client_disconnect":
+                raise SystemExit(1)
+
             elif mtype in {"container_add", "container_del", "container_update"}:
                 cnt: Container = cast(Container, mobj)
                 log().info(
