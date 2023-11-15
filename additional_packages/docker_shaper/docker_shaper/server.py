@@ -97,6 +97,8 @@ async def watch_fs_changes(global_state: dynamic.GlobalState):
         )
     ):
         for changed_file, module in changes:
+            if "flask_table" in changed_file.as_posix():
+                continue
             try:
                 if changed_file == CONFIG_FILE:
                     log().info("config file %s changed - apply changes", changed_file)
