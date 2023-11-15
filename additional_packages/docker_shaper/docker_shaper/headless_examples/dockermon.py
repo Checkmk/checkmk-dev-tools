@@ -76,6 +76,24 @@ class LockingRichLog(RichLog):
         self.auto_scroll = self.is_vertical_scroll_end
 
 
+def container_markup(container: Container) -> str:
+    status_markups = {"running": "cyan bold"}
+    image_str, status_str = (
+        ("", "", "")
+        if not container.show
+        else (
+            f" image:[bold]{short_id(container.show.Image)}[/]",
+            f" - [{status_markups.get(container.show.State.Status, 'grey53')}]"
+            f"{container.show.State.Status:7s}[/]",
+        )
+    )
+    return (
+        f"[bold]{container.short_id}[/] / {container.name:<26s}{image_str}{status_str}"
+        f" - {container.cpu_usage() * 100:7.2f}%"
+        f" - {container.mem_usage() >> 20:5d}MiB"
+    )
+
+
 class DockerMon(App[None]):
     """Tree view for Jenkins upstream vs. JJB generated jobs"""
 
@@ -86,6 +104,7 @@ class DockerMon(App[None]):
         self._richlog = LockingRichLog()
         self.docker_stats_tree: Tree[None] = Tree("Docker stats")
         self.removal_patterns: Mapping[str, int] = {}
+        self.pattern_usage_count: Mapping[str, int] = {}
 
     def compose(self) -> ComposeResult:
         """Set up the UI"""
@@ -102,21 +121,24 @@ class DockerMon(App[None]):
     async def produce(self) -> None:
         """Continuously updates Docker elements tree"""
         container_nodes = {}
-        containers_node = self.docker_stats_tree.root.add("Containers")
+        containers_node = self.docker_stats_tree.root.add("Containers", expand=True)
 
         image_nodes = {}
-        images_node = self.docker_stats_tree.root.add("Images")
+        images_node = self.docker_stats_tree.root.add("Images", expand=False)
 
         reference_nodes = {}
-        references_node = self.docker_stats_tree.root.add("References")
+        references_node = self.docker_stats_tree.root.add("Image-references", expand=True)
 
         network_nodes = {}
-        networks_node = self.docker_stats_tree.root.add("Networks")
+        networks_node = self.docker_stats_tree.root.add("Networks", expand=True)
 
         volume_nodes = {}
-        volumes_node = self.docker_stats_tree.root.add("Volumes")
+        volumes_node = self.docker_stats_tree.root.add("Volumes", expand=True)
 
-        self.docker_stats_tree.root.expand_all()
+        patterns_node = self.docker_stats_tree.root.add("Image-pattern", expand=False)
+
+        self.docker_stats_tree.root.expand()
+        self.docker_stats_tree.root.allow_expand = False
 
         # from rich import color
         # color_node = self.docker_stats_tree.root.add("Colors", expand=False)
@@ -133,11 +155,11 @@ class DockerMon(App[None]):
             )
         ):
             log().info(
-                "waiting for elements to be crawled"
-                f" (cont: {self.docker_state.containers_crawled})"
-                f" (images: {self.docker_state.images_crawled})"
-                f" (volumes: {self.docker_state.volumes_crawled})"
-                f" (networks: {self.docker_state.networks_crawled})"
+                "wait for initial crawls (C: %s, I: %s, V: %s, N: %s)",
+                self.docker_state.containers_crawled,
+                self.docker_state.images_crawled,
+                self.docker_state.volumes_crawled,
+                self.docker_state.networks_crawled,
             )
             await asyncio.sleep(1)
 
@@ -146,15 +168,24 @@ class DockerMon(App[None]):
             container_nodes[container.id] = containers_node.add(f"{container}")
 
         # add all images
+        pattern_issues = []
         for img in self.docker_state.images.values():
             img_node = image_nodes[img.id] = images_node.add(f"{img}", expand=True)
             for tag in img.tags:
                 dep_age, reason = dynamic.expiration_age_from_image_name(
                     self.removal_patterns, tag, 666
                 )
+                reason_markup = "bold red"
+                if reason in self.removal_patterns:
+                    if reason not in self.pattern_usage_count:
+                        self.pattern_usage_count[reason] = 0
+                    self.pattern_usage_count[reason] += 1
+                    reason_markup = "sky_blue2"
+                else:
+                    pattern_issues.append(f"{tag} # {reason}")
                 img_node.add(
                     f"dep_age=[sky_blue2]{dep_age:10d}[/]"
-                    f" [bold]{tag}[/] '[sky_blue2]{reason}[/]'"
+                    f" [bold]{tag}[/] '[{reason_markup}]{reason}[/]'"
                 )
 
         # add all volumes
@@ -165,11 +196,26 @@ class DockerMon(App[None]):
         for network in self.docker_state.networks.values():
             network_nodes[network.Id] = networks_node.add(f"{network}")
 
+        # add all pattern
+        for issue in pattern_issues:
+            patterns_node.add(f"[bold red]{issue}[/]'")
+        for pattern, dep_age in self.removal_patterns.items():
+            usage_count = self.pattern_usage_count.get(pattern, 0)
+            if usage_count == 0:
+                pattern_issues.append(pattern)
+            patterns_node.add(f"{usage_count:3d}: r'[sky_blue2]{pattern}[/]'")
+            # network_nodes[network.Id] = networks_node.add(f"{network}")
+
+        with open(Path("~/.docker_shaper").expanduser() / "pattern-issues.txt", "w") as issues_file:
+            issues_file.write("\n".join(pattern_issues))
+
+        patterns_node.set_label(f"Image-pattern ({len(self.removal_patterns)})")
+
         async for mtype, mtext, mobj in self.docker_state.wait_for_change():
             self.docker_stats_tree.root.set_label(
                 f"{utils.get_hostname()}"
-                f" / {utils.date_str(self.docker_state.event_horizon)}"
-                f" / {utils.dur_str(int(time.time()) - self.docker_state.event_horizon)}"
+                f" / horizon={utils.date_str(self.docker_state.event_horizon)}"
+                f" ({utils.dur_str(int(time.time()) - self.docker_state.event_horizon)})"
             )
 
             if mtype == "exception":
@@ -198,14 +244,15 @@ class DockerMon(App[None]):
                 if mtype == "container_add" and cnt.id not in container_nodes:
                     container_nodes[cnt.id] = containers_node.add(f"{cnt}")
                 if mtype == "container_update":
-                    container_nodes[cnt.id].set_label(f"{cnt} - {cnt.cpu_usage() *100:.2f}%")
+                    container_nodes[cnt.id].set_label(container_markup(cnt))
                 if mtype == "container_del" and cnt.id in container_nodes:
                     container_nodes[cnt.id].remove()
                     del container_nodes[cnt.id]
 
+                containers_node.set_label(f"Containers ({len(self.docker_state.containers)})")
+
             elif mtype in {"image_add", "image_del", "image_update"}:
                 image_id = mtext
-                assert hasattr(mobj, "short_id")
 
                 log().info(
                     "image info: '%s' / %s (%d total)",
@@ -220,9 +267,11 @@ class DockerMon(App[None]):
                     continue
                 image = self.docker_state.images[image_id]
                 if mtype == "image_add" and image.id not in image_nodes:
-                    image_nodes[image.id] = containers_node.add(f"{image}")
+                    image_nodes[image.id] = images_node.add(f"{image}")
                 if mtype == "image_update":
                     image_nodes[image.id].set_label(f"{image} - +")
+
+                images_node.set_label(f"Images ({len(self.docker_state.images)})")
 
             elif mtype in {"volume_add", "volume_del"}:
                 volume_id = mtext
@@ -240,6 +289,7 @@ class DockerMon(App[None]):
                     if volume_id in volume_nodes:
                         volume_nodes[volume_id].remove()
                         del volume_nodes[volume_id]
+                volumes_node.set_label(f"Volumes ({len(self.docker_state.volumes)})")
 
             elif mtype in {"network_add", "network_del"}:
                 network_id = mtext
@@ -257,6 +307,7 @@ class DockerMon(App[None]):
                     if network_id in network_nodes:
                         network_nodes[network_id].remove()
                         del network_nodes[network_id]
+                networks_node.set_label(f"Networks ({len(self.docker_state.networks)})")
 
             elif mtype in {"reference_update", "reference_del"}:
                 ident = cast(ImageIdent, mobj)
