@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 
+"""Tailors Quart based web interface and DockerState instance"""
+
+# pylint: disable=too-many-locals
+
 import asyncio
 import importlib
 import logging
 import sys
-from contextlib import suppress
 from pathlib import Path
 
 from apparat import fs_changes
@@ -21,6 +24,7 @@ def log() -> logging.Logger:
 
 
 async def schedule_print_container_stats(global_state: dynamic.GlobalState) -> None:
+    """Async infinitve loop wrapper for print_container_stats"""
     while True:
         try:
             await asyncio.ensure_future(dynamic.print_container_stats(global_state))
@@ -31,6 +35,7 @@ async def schedule_print_container_stats(global_state: dynamic.GlobalState) -> N
 
 
 async def schedule_print_state(global_state: dynamic.GlobalState):
+    """Async infinitve loop wrapper for dump_global_state"""
     while True:
         try:
             await asyncio.ensure_future(dynamic.dump_global_state(global_state))
@@ -41,6 +46,7 @@ async def schedule_print_state(global_state: dynamic.GlobalState):
 
 
 async def schedule_cleanup(global_state: dynamic.GlobalState):
+    """Async infinitve loop wrapper for cleanup"""
     while True:
         try:
             while True:
@@ -62,6 +68,7 @@ async def schedule_cleanup(global_state: dynamic.GlobalState):
 
 
 def load_config(path: Path, global_state: dynamic.GlobalState) -> None:
+    """Load the config module and invoke `reconfigure`"""
     module = utils.load_module(path)
     try:
         module.modify(global_state)
@@ -118,22 +125,8 @@ async def watch_fs_changes(global_state: dynamic.GlobalState):
     assert False
 
 
-def no_serve():
-    global_state = dynamic.GlobalState()
-    load_config(CONFIG_FILE, global_state)
-    dynamic.setup_introspection()
-    with suppress(KeyboardInterrupt, BrokenPipeError):
-        asyncio.ensure_future(global_state.docker_state.run())
-        asyncio.ensure_future(dynamic.run_listen_messages(global_state))
-        asyncio.ensure_future(watch_fs_changes(global_state))
-        asyncio.ensure_future(schedule_print_container_stats(global_state))
-        asyncio.ensure_future(schedule_print_state(global_state))
-        asyncio.ensure_future(schedule_cleanup(global_state))
-        asyncio.get_event_loop().run_forever()
-
-
-def serve():
-    """"""
+def serve() -> None:
+    """Instantiate DockerState and run the quart server"""
     app = Quart(__name__)
     app.config["TEMPLATES_AUTO_RELOAD"] = True
 
@@ -149,11 +142,6 @@ def serve():
         except Exception:  # pylint: disable=broad-except
             dynamic.report(global_state, "exception", f"exception in response_{endpoint}:")
             raise
-
-    @app.route("/shutdown")
-    def route_shutdown():
-        app.terminator.set()
-        return "Server shutting down..."
 
     @app.route("/<generic>", methods=["GET", "POST"])
     async def route_generic(generic) -> Response:
@@ -237,7 +225,7 @@ def serve():
         await dynamic.response_control_ws(global_state)
 
     @app.before_serving
-    async def start_background_tasks():
+    async def start_background_tasks() -> None:
         asyncio.ensure_future(global_state.docker_state.run())
         asyncio.ensure_future(dynamic.run_listen_messages(global_state))
         asyncio.ensure_future(watch_fs_changes(global_state))
@@ -247,7 +235,6 @@ def serve():
 
     dynamic.report(global_state, "info", "docker-shaper started")
 
-    app.terminator = asyncio.Event()
     app.run(
         host="0.0.0.0",
         port=5432,

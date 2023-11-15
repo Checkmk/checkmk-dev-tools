@@ -5,7 +5,6 @@
 
 from argparse import ArgumentParser
 from argparse import Namespace as Args
-from pathlib import Path
 
 from docker_shaper import server
 from docker_shaper.utils import setup_logging
@@ -28,9 +27,6 @@ def parse_args() -> Args:
     parser_serve = subparsers.add_parser("serve")
     parser_serve.set_defaults(func=fn_serve)
 
-    parser_no_serve = subparsers.add_parser("no-serve")
-    parser_no_serve.set_defaults(func=fn_no_serve)
-
     return parser.parse_args()
 
 
@@ -38,12 +34,6 @@ def fn_serve(args: Args) -> None:
     """Entry point for event consistency check"""
     setup_logging(args.log_level)
     server.serve()
-
-
-def fn_no_serve(args: Args) -> None:
-    """Entry point for event consistency check"""
-    setup_logging(args.log_level)
-    server.no_serve()
 
 
 def main() -> int:
