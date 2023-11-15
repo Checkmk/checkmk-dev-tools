@@ -301,7 +301,6 @@ def expiration_age_from_image_name(
 def check_expiration(
     global_state: GlobalState, ident: str, now: int, extra_date: int = 0
 ) -> tuple[bool, None | int, int, str]:
-    # assert ident == unique_ident(ident)
     uident = unique_ident(ident)
 
     if uident not in global_state.last_referenced:
@@ -314,11 +313,17 @@ def check_expiration(
     #    ident, [None, expiration_age_from_ident(global_state, ident)]
     # )
 
-    effective_age = now - max(
-        last_referenced or 0,
-        global_state.docker_state.event_horizon,
-        extra_date,
-    )
+    if last_referenced is None and (match := re.match(r"^.*(\d{4}\.\d{2}\.\d{2}).*$", ident)):
+        # Fallback strategy for the case no reference exists yet but from a date encoded in the
+        # image tag we know it's outdated anyway
+        tag_date = datetime.strptime(match.group(1), "%Y.%m.%d")
+        effective_age = now - max(extra_date, int(tag_date.timestamp()) + 3600 * 24)
+    else:
+        effective_age = now - max(
+            last_referenced or 0,
+            global_state.docker_state.event_horizon,
+            extra_date,
+        )
     return effective_age > expiration_age, last_referenced, expiration_age, reason
 
 
