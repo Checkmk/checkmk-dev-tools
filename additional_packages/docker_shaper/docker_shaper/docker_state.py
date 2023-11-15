@@ -281,9 +281,9 @@ class Container:
     last_stats: None | ContainerStats = None
 
     def __str__(self) -> str:
-        image_str = "" if not self.show else f" image:{short_id(self.show.Image)}"
-        status_str = "" if not self.show else f" - {self.show.State.Status}"
-        return f"{self.short_id} / {self.name:<26s}{image_str}{status_str}"
+        image_str = "" if not self.show else f", image={short_id(self.show.Image)}"
+        status_str = "" if not self.show else f", status={self.show.State.Status}"
+        return f"Container({self.short_id}, name={self.name}{image_str}{status_str})"
 
     @property
     def id(self) -> str:
@@ -375,6 +375,12 @@ class Container:
             / (cpu_stats.system_cpu_usage - last_cpu_stats.system_cpu_usage)
             * cpu_stats.online_cpus
         )
+
+    def mem_usage(self) -> int:
+        """Returns actual memory usage of container"""
+        if not self.stats:
+            return 0
+        return self.stats.memory_stats.usage or 0
 
 
 class ImageInspect(Deserializable):
@@ -835,7 +841,7 @@ async def watch_container(state: DockerState, container: DockerContainer) -> Non
                 **(await container.show())  # type: ignore[no-untyped-call]
             )
             cpu_usage = container_info.cpu_usage()
-            mem_usage = container_info.stats.memory_stats.usage or 0
+            mem_usage = container_info.mem_usage()
             if not old_show and container_info.last_stats:
                 continue
 

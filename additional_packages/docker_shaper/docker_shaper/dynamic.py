@@ -221,7 +221,7 @@ def handle_docker_state_message(
                         {
                             "time": int(time.time() - cnt.started_at.timestamp()),
                             "cpu-usage": int(cnt.cpu_usage() * 100) / 100,
-                            "mem-usage": cnt.stats.memory_stats.usage,
+                            "mem-usage": cnt.mem_usage(),
                         },
                     )
 
@@ -579,7 +579,7 @@ class ContainerTable(BaseTable):
                         "short_id": coloured_ident(cnt),
                         "name": cnt.name,
                         "image": short_id(cnt.image) if is_uid(cnt.image) else cnt.image,
-                        "mem_usage": f"{((cnt.stats.memory_stats.usage or 0)>>20)}MiB",
+                        "mem_usage": f"{(cnt.mem_usage() >> 20)}MiB",
                         "cpu": f"{int(cnt.cpu_usage() * 1000) / 10}%",
                         "cmd": "--" if not (cmd := cnt.cmd) else " ".join(cmd)[:100],
                         "job": jobname_from(
@@ -789,7 +789,7 @@ async def print_container_stats(global_state: GlobalState) -> None:
         {
             "short_id": cnt.short_id,
             "name": cnt.name,
-            "usage": cnt.stats.memory_stats.usage,
+            "usage": cnt.mem_usage(),
             "cmd": " ".join(cnt.cmd or []),
             "job": (
                 jobname_from(
