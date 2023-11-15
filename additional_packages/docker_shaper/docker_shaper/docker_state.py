@@ -588,9 +588,9 @@ class DockerState:
         self.docker_client: None | Docker = None
         self.updates = asyncio.Queue[MType]()
 
-    async def inform(self, mtype: MessageType, mtext: str, mobj: None | object = None) -> None:
+    def inform(self, mtype: MessageType, mtext: str, mobj: None | object = None) -> None:
         """Inform about something important has happened"""
-        await self.updates.put((mtype, mtext, mobj))
+        self.updates.put_nowait((mtype, mtext, mobj))
 
     async def wait_for_change(self) -> AsyncIterator[MType]:
         """Pass messages read from message queue"""
@@ -629,7 +629,11 @@ class DockerState:
         # for _raw_e in map(json.loads, open("docker-events.log")):
         while True:
             try:
-                _raw_e = await subscriber.get()
+                if (_raw_e := await subscriber.get()) is None:
+                    log().error("got None event (probably socket disconnect)")
+                    self.inform("client_disconnect", "docker events yielded None")
+                    continue
+
                 event = DockerEvent(**_raw_e)
 
                 assert not _raw_e.get("id") or _raw_e.get("id") == event.Actor.ID
@@ -652,9 +656,8 @@ class DockerState:
                 else:
                     event_buffer.append(event)
             except Exception as exc:  # pylint: disable=broad-except
-                log().error("Error while handling event:")
-                log().error("%s", _raw_e)
-                await self.inform("exception", "in monitor_events()", exc)
+                log().error("Error while handling event: %s", str(_raw_e))
+                self.inform("exception", "in monitor_events()", exc)
 
     async def run_crawl_containers(self) -> None:
         """Continuously updates information about running containers"""
@@ -662,7 +665,7 @@ class DockerState:
             try:
                 await crawl_containers(self)
             except Exception as exc:  # pylint: disable=broad-except
-                await self.inform("exception", "in run_crawl_containers()", exc)
+                self.inform("exception", "in run_crawl_containers()", exc)
             await asyncio.sleep(self.containers_crawl_interval)
 
     async def run_crawl_images(self) -> None:
@@ -671,7 +674,7 @@ class DockerState:
             try:
                 await crawl_images(self)
             except Exception as exc:  # pylint: disable=broad-except
-                await self.inform("exception", "in run_crawl_images()", exc)
+                self.inform("exception", "in run_crawl_images()", exc)
             await asyncio.sleep(self.images_crawl_interval)
 
     async def run_crawl_volumes(self) -> None:
@@ -680,7 +683,7 @@ class DockerState:
             try:
                 await crawl_volumes(self)
             except Exception as exc:  # pylint: disable=broad-except
-                await self.inform("exception", "in run_crawl_volumes()", exc)
+                self.inform("exception", "in run_crawl_volumes()", exc)
             await asyncio.sleep(self.volumes_crawl_interval)
 
     async def run_crawl_networks(self) -> None:
@@ -689,7 +692,7 @@ class DockerState:
             try:
                 await crawl_networks(self)
             except Exception as exc:  # pylint: disable=broad-except
-                await self.inform("exception", "in run_crawl_networks()", exc)
+                self.inform("exception", "in run_crawl_networks()", exc)
             await asyncio.sleep(self.networks_crawl_interval)
 
     async def prune_builder_cache(self) -> tuple[Sequence[str], Sequence[str], int]:
@@ -735,7 +738,7 @@ async def crawl_containers(state: DockerState) -> None:
         log().debug("found unregistered container %s", short_id(container.id))
         if state.containers_crawled:
             log().error("%s should have been registered automatically before!", container.id)
-        await register_container(state, container)
+        register_container(state, container)
 
     if not state.containers_crawled:
         state.containers_crawled = True
@@ -757,7 +760,7 @@ async def container_from(docker_client: Docker, ident: str) -> None | DockerCont
     return None
 
 
-async def register_container(state: DockerState, container: DockerContainer) -> None:
+def register_container(state: DockerState, container: DockerContainer) -> None:
     """Put a container into set of known containers"""
     if container.id in state.containers:
         return
@@ -766,14 +769,12 @@ async def register_container(state: DockerState, container: DockerContainer) -> 
     asyncio.ensure_future(watch_container(state, container))
 
 
-async def unregister_container(state: DockerState, container_id: str) -> None:
+def unregister_container(state: DockerState, container_id: str) -> None:
     """Remove a container from set of known containers"""
     try:
         del state.containers[container_id]
     except KeyError:
-        await state.inform(
-            "error", f"tried to remove container {short_id(container_id)} unknown to us"
-        )
+        state.inform("error", f"tried to remove container {short_id(container_id)} unknown to us")
 
 
 async def watch_container(state: DockerState, container: DockerContainer) -> None:
@@ -787,9 +788,9 @@ async def watch_container(state: DockerState, container: DockerContainer) -> Non
         )
 
         # todo: wrong - other things could have happened since..
-        await register_reference(state, show.Image, show.Created.timestamp())
+        register_reference(state, show.Image, show.Created.timestamp())
 
-        await state.inform("container_add", container.id, container_info)
+        state.inform("container_add", container.id, container_info)
 
         log().info(">> new container: %s %s", container_info.short_id, name)
 
@@ -817,7 +818,7 @@ async def watch_container(state: DockerState, container: DockerContainer) -> Non
                 last_mem_usage,
             ):
                 last_cpu_usage, last_mem_usage = cpu_usage, mem_usage
-                await state.inform("container_update", container.id, container_info)
+                state.inform("container_update", container.id, container_info)
 
             count += 1
 
@@ -826,12 +827,12 @@ async def watch_container(state: DockerState, container: DockerContainer) -> Non
     except DockerError as exc:
         log().warning("DockerError while watching %s: %s", container.id, exc)
     except Exception as exc:  # pylint: disable=broad-except
-        await state.inform("exception", f"in watch_container() while watching {container.id}", exc)
+        state.inform("exception", f"in watch_container() while watching {container.id}", exc)
     finally:
         if normally_terminated:
             log().info("<< container terminated: %s %s", container_info.short_id, name)
-        await unregister_container(state, container.id)
-        await state.inform("container_del", container.id, container_info)
+        unregister_container(state, container.id)
+        state.inform("container_del", container.id, container_info)
 
 
 def update_inform_trigger(
@@ -901,7 +902,7 @@ async def crawl_images(state: DockerState) -> None:
                 state.images[parent_id].children.add(image_id)
         else:
             log().error("registered image %s does not exist anymore", short_id(image_id))
-            await unregister_image(state, image_id)
+            unregister_image(state, image_id)
 
 
 async def image_from(docker_client: Docker, ident: str) -> None | ImageInspect:
@@ -945,19 +946,19 @@ async def register_image(state: DockerState, image_id: str) -> None:
 
     log().debug("image '%s': registered", short_id(image_id))
 
-    await state.inform("image_add", inspect.Id, state.images[inspect.Id])
+    state.inform("image_add", inspect.Id, state.images[inspect.Id])
 
 
-async def unregister_image(state: DockerState, image_id: str) -> None:
+def unregister_image(state: DockerState, image_id: str) -> None:
     """Remove an image from set of known images"""
     # todo? assert image_from() results None
     if image_id not in state.images:
         return
     for deleted_tag in state.images[image_id].tags:
-        await unregister_reference(state, deleted_tag)
+        unregister_reference(state, deleted_tag)
     parent_id = state.images[image_id].parent
     del state.images[image_id]
-    await unregister_reference(state, image_id)
+    unregister_reference(state, image_id)
     if parent_id:
         try:
             state.images[parent_id].children.remove(image_id)
@@ -967,7 +968,7 @@ async def unregister_image(state: DockerState, image_id: str) -> None:
                 short_id(image_id),
                 short_id(parent_id),
             )
-    await state.inform("image_del", image_id)
+    state.inform("image_del", image_id)
 
 
 async def update_image_registration(state: DockerState, image_id: str) -> None:
@@ -978,14 +979,14 @@ async def update_image_registration(state: DockerState, image_id: str) -> None:
             tags_before = image.tags
             tags_new = inspect.tags
             for deleted_tag in tags_before - tags_new:
-                await unregister_reference(state, deleted_tag)
+                unregister_reference(state, deleted_tag)
             state.images[inspect.Id].inspect = inspect
             # tag for tag in (image["RepoTags"] or []) if tag != "<none>:<none>"
-            await state.inform("image_update", inspect.Id)
+            state.inform("image_update", inspect.Id)
         else:
             await register_image(state, inspect.Id)
     else:
-        await unregister_image(state, image_id)
+        unregister_image(state, image_id)
 
 
 async def crawl_volumes(state: DockerState) -> None:
@@ -1019,7 +1020,7 @@ async def cleanup_volume_registrations(
         if volume_name not in volumes:
             # we don't get network delete events, so this is not an 'error'
             log().debug("registered volume '%s' does not exist anymore", short_id(volume_name))
-            await unregister_volume(state, volume_name)
+            unregister_volume(state, volume_name)
 
 
 async def register_volume(state: DockerState, volume_or_id: str | Volume) -> None:
@@ -1041,16 +1042,16 @@ async def register_volume(state: DockerState, volume_or_id: str | Volume) -> Non
     )
     state.volumes[volume_name] = volume
 
-    await state.inform("volume_add", volume_name, volume)
+    state.inform("volume_add", volume_name, volume)
 
 
-async def unregister_volume(state: DockerState, volume_id: str) -> None:
+def unregister_volume(state: DockerState, volume_id: str) -> None:
     """Remove a volume from set of known volumes"""
     try:
         del state.volumes[volume_id]
-        await state.inform("volume_del", volume_id)
+        state.inform("volume_del", volume_id)
     except KeyError:
-        await state.inform("error", f"tried to remove volume {short_id(volume_id)} unknown to us")
+        state.inform("error", f"tried to remove volume {short_id(volume_id)} unknown to us")
 
 
 async def crawl_networks(state: DockerState) -> None:
@@ -1080,7 +1081,7 @@ async def cleanup_network_registrations(
         if net_id not in network_ids:
             # we don't get network delete events, so this is not an 'error'
             log().debug("registered network %s does not exist anymore", short_id(net_id))
-            await unregister_network(state, net_id)
+            unregister_network(state, net_id)
 
 
 async def register_network(state: DockerState, network_or_id: str | Network) -> None:
@@ -1105,34 +1106,34 @@ async def register_network(state: DockerState, network_or_id: str | Network) -> 
     )
     state.networks[network.Id] = network
 
-    await state.inform("network_add", network.Id, network)
+    state.inform("network_add", network.Id, network)
 
 
-async def unregister_network(state: DockerState, network_id: str) -> None:
+def unregister_network(state: DockerState, network_id: str) -> None:
     """Remove a network from set of known networks"""
     try:
         del state.networks[network_id]
-        await state.inform("network_del", network_id)
+        state.inform("network_del", network_id)
     except KeyError:
-        await state.inform("error", f"tried to remove network {short_id(network_id)} unknown to us")
+        state.inform("error", f"tried to remove network {short_id(network_id)} unknown to us")
 
 
-async def register_reference(state: DockerState, ident: str, timestamp: float) -> None:
+def register_reference(state: DockerState, ident: str, timestamp: float) -> None:
     """Remember the exact time we've last seen @ident"""
     if "@sha256:" in ident or is_uid(ident):
         return
     effective_ident = unique_ident(ident)
     if timestamp > state.last_referenced.get(effective_ident, 0):
         state.last_referenced[effective_ident] = int(timestamp)
-        await state.inform("reference_update", str(effective_ident), effective_ident)
+        state.inform("reference_update", str(effective_ident), effective_ident)
 
 
-async def unregister_reference(state: DockerState, ident: str) -> None:
+def unregister_reference(state: DockerState, ident: str) -> None:
     """Forget the time we've last seen @ident"""
     effective_ident = unique_ident(ident)
     with suppress(KeyError):
         del state.last_referenced[effective_ident]
-        await state.inform("reference_del", str(effective_ident))
+        state.inform("reference_del", str(effective_ident))
 
 
 async def handle_docker_event(state: DockerState, event: DockerEvent) -> None:
@@ -1163,8 +1164,8 @@ async def handle_docker_event(state: DockerState, event: DockerEvent) -> None:
             container = await container_from(state.client(), event_id)
             if not container:
                 raise RuntimeError(f"Container {event_id} does not exist after 'create'")
-            await register_container(state, container)
-            await register_reference(state, event.Actor.Attributes["image"], tstamp)
+            register_container(state, container)
+            register_reference(state, event.Actor.Attributes["image"], tstamp)
             return
 
         if event_action in {
@@ -1174,9 +1175,7 @@ async def handle_docker_event(state: DockerState, event: DockerEvent) -> None:
             # unregister_container(uid, global_state)
 
             if await container_from(state.client(), event_id):
-                await state.inform(
-                    "error", f"container {event_id} still alive after {event_action}"
-                )
+                state.inform("error", f"container {event_id} still alive after {event_action}")
             return
 
         if event_action in {
@@ -1251,7 +1250,7 @@ async def handle_docker_event(state: DockerState, event: DockerEvent) -> None:
             return
 
         if event_action == "destroy":
-            await unregister_network(state, event_id)
+            unregister_network(state, event_id)
             return
 
         if event_action == "prune":
@@ -1270,7 +1269,7 @@ async def handle_docker_event(state: DockerState, event: DockerEvent) -> None:
             return
 
         if event_action == "destroy":
-            await unregister_volume(state, event_id)
+            unregister_volume(state, event_id)
             return
 
         if event_action == "mount":

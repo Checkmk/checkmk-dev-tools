@@ -111,10 +111,10 @@ class GlobalState:
         del mqueue
         log().info("closed connection (%d)", len(self.update_mqueues))
 
-    async def inform(self, message: str) -> None:
+    def inform(self, message: str) -> None:
         """Send a message to all connected message queues"""
         for mqueue in self.update_mqueues:
-            await mqueue.put(message)
+            mqueue.put_nowait(message)
 
     @property
     def containers(self) -> MutableMapping[str, Container]:
