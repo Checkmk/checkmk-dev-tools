@@ -2,6 +2,11 @@
 
 """Provide information about CI artifacts and make them available locally"""
 
+# pylint: disable=too-many-branches
+# pylint: disable=too-many-arguments
+# pylint: disable=too-many-instance-attributes
+# pylint: disable=fixme
+
 import logging
 import os
 import sys
@@ -20,9 +25,6 @@ from typing import Iterator, Mapping, Sequence, Tuple, Union, cast
 from jenkins import Jenkins
 
 from cmk_dev.utils import cwd, md5from, setup_logging
-
-# pylint: disable=too-many-instance-attributes
-# pylint: disable=fixme
 
 GenMapVal = Union[None, bool, str, float, int, "GenMapArray", "GenMap"]
 GenMapArray = Sequence[GenMapVal]
@@ -548,7 +550,10 @@ def meets_constraints(
             )
             result = False
 
-    if time_constraints is None or time_constraints == "today":
+    if time_constraints is None:
+        pass
+
+    elif time_constraints == "today":
         if build.timestamp.date() != datetime.now().date():
             log().debug(
                 "build #%s does not meet time constraints: %s != %s",
@@ -658,7 +663,7 @@ def _fn_fetch(args: Args) -> None:
         print(artifact)
 
 
-def fetch_job_artifacts(  # pylint: disable=too-many-arguments
+def fetch_job_artifacts(
     job_full_path: str,
     *,
     credentials: Union[None, Mapping[str, str]] = None,
