@@ -203,7 +203,7 @@ class Build:
                 build_info["result"],
             )
 
-        if not result in {None, "FAILURE", "SUCCESS"}:
+        if not result in {None, "FAILURE", "SUCCESS", "ABORTED"}:
             log().error("Build result has unexpected value %s", result)
 
         if not result and not in_progress:
