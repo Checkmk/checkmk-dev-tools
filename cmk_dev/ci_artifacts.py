@@ -13,6 +13,7 @@ import sys
 import time
 from argparse import ArgumentParser
 from argparse import Namespace as Args
+from collections import Counter
 from configparser import ConfigParser
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
@@ -391,21 +392,42 @@ def download_artifacts(
 
     # https://bugs.launchpad.net/python-jenkins/+bug/1973243
     # https://bugs.launchpad.net/python-jenkins/+bug/2018576
-    fingerprints = {
-        fingerprint["fileName"]: fingerprint["hash"]
+
+    # Beware! files with same content are mistakenly stored with the same filename.
+    #         Also artifact directories are omitted in fingerprint list.
+    # see: https://stackoverflow.com/questions/45555108
+    # Our workaround: replace fingerprint names with those of the artifacts
+
+    # first: create a name: value tuple rather than a dict for filename->hash in order
+    #        to keep duplicates. Do not sort to keep the order
+    raw_fingerprints = [
+        (fingerprint["fileName"], fingerprint["hash"])
         for fingerprint in client._session.get(
             f"{build.url}api/json?tree=fingerprint[fileName,hash]"
         ).json()["fingerprint"]
+    ]
+
+    # second: check consistency: names must match or fingerprint hash must be ambiguous
+    duplicate_hashes = set(fp[1] for fp, count in Counter(raw_fingerprints).items() if count > 1)
+    if not all(
+        fp_hash in duplicate_hashes or artifact.split("/")[-1] == fp_name
+        for artifact, (fp_name, fp_hash) in zip(build.artifacts, raw_fingerprints)
+    ):
+        raise Fatal(f"Artifact fingerprints for {build.url} are broken - report a bug please")
+
+    # third: create new fingerprints from artifact names an fingerprint hashes, keeping their order
+    artifact_hashes = {
+        artifact: fp_hash for artifact, (_, fp_hash) in zip(build.artifacts, raw_fingerprints)
     }
 
-    if len(fingerprints) != len(build.artifacts):
+    if len(artifact_hashes) != len(build.artifacts):
         log().error(
-            "inconsistent values for len(fingerprints)=%d != len(build.artifacts)=%d",
-            len(fingerprints),
+            "inconsistent values for len(artifact_hashes)=%d != len(build.artifacts)=%d",
+            len(artifact_hashes),
             len(build.artifacts),
         )
 
-    if not fingerprints:
+    if not artifact_hashes:
         raise Fatal(f"no (fingerprinted) artifacts found at {build.url}")
 
     existing_files = set(
@@ -414,7 +436,7 @@ def download_artifacts(
 
     for artifact in build.artifacts:
         existing_files -= {artifact}
-        fp_hash = fingerprints[artifact.split("/")[-1]]
+        fp_hash = artifact_hashes[artifact]
         log().debug("handle artifact: %s (md5: %s)", artifact, fp_hash)
         artifact_filename = out_dir / artifact
         local_hash = md5from(artifact_filename)
