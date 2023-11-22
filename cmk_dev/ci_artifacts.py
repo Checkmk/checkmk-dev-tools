@@ -13,7 +13,6 @@ import sys
 import time
 from argparse import ArgumentParser
 from argparse import Namespace as Args
-from collections import Counter
 from configparser import ConfigParser
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
@@ -23,9 +22,8 @@ from pathlib import Path
 from subprocess import check_output
 from typing import Iterator, Mapping, Sequence, Tuple, Union, cast
 
-from jenkins import Jenkins
-
 from cmk_dev.utils import cwd, md5from, setup_logging
+from jenkins import Jenkins
 
 GenMapVal = Union[None, bool, str, float, int, "GenMapArray", "GenMap"]
 GenMapArray = Sequence[GenMapVal]
@@ -398,27 +396,16 @@ def download_artifacts(
     # see: https://stackoverflow.com/questions/45555108
     # Our workaround: replace fingerprint names with those of the artifacts
 
-    # first: create a name: value tuple rather than a dict for filename->hash in order
-    #        to keep duplicates. Do not sort to keep the order
-    raw_fingerprints = [
-        (fingerprint["fileName"], fingerprint["hash"])
-        for fingerprint in client._session.get(
-            f"{build.url}api/json?tree=fingerprint[fileName,hash]"
-        ).json()["fingerprint"]
-    ]
+    fp_url = f"{build.url}api/json?tree=fingerprint[hash]"
+    log().debug("fetch artifact fingerprints from %s", fp_url)
 
-    # second: check consistency: names must match or fingerprint hash must be ambiguous
-    duplicate_hashes = set(fp[1] for fp, count in Counter(raw_fingerprints).items() if count > 1)
-    if not all(
-        fp_hash in duplicate_hashes or artifact.split("/")[-1] == fp_name
-        for artifact, (fp_name, fp_hash) in zip(build.artifacts, raw_fingerprints)
-    ):
-        raise Fatal(f"Artifact fingerprints for {build.url} are broken - report a bug please")
-
-    # third: create new fingerprints from artifact names an fingerprint hashes, keeping their order
-    artifact_hashes = {
-        artifact: fp_hash for artifact, (_, fp_hash) in zip(build.artifacts, raw_fingerprints)
-    }
+    # create new fingerprints from artifact names an fingerprint hashes, keeping their order
+    artifact_hashes = dict(
+        zip(
+            sorted(build.artifacts),
+            (fprint["hash"] for fprint in client._session.get(fp_url).json()["fingerprint"]),
+        )
+    )
 
     if len(artifact_hashes) != len(build.artifacts):
         log().error(
