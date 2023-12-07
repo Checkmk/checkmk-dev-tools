@@ -785,37 +785,60 @@ def fetch_job_artifacts(
     for key, value in build_candidate.__dict__.items():
         log().debug("  %s: %s", key, value)
 
-    if not build_candidate.finished:
-        log().info("build #%s still in progress (%s)", build_candidate.number, build_candidate.url)
+    return download_build_artifacts(
+        job.fullName,
+        build_candidate.number,
+        out_dir=out_dir,
+        jenkins=jenkins,
+        no_remove_others=no_remove_others,
+        check_result=True,
+        path_hashes=path_hashes,
+    )
+
+
+def download_build_artifacts(
+    job_full_path: str,
+    build_number: int,
+    *,
+    out_dir: Path,
+    jenkins: Jenkins,
+    no_remove_others: bool,
+    check_result: bool,
+    path_hashes: None | PathHashes,
+) -> Sequence[str]:
+    """Download artifacts for given Jenkins job to @out_dir"""
+    current_build_info = Build.model_validate(jenkins.get_build_info(job_full_path, build_number))
+    if not current_build_info.finished:
+        log().info("build #%s still in progress (%s)", build_number, current_build_info.url)
         while True:
-            build_candidate = Build.model_validate(
-                jenkins.get_build_info(job.fullName, build_candidate.number)
-            )
-            if not build_candidate.finished:
-                log().debug("build %s in progress", build_candidate.number)
+            if not current_build_info.finished:
+                log().debug("build %s in progress", build_number)
                 time.sleep(10)
+                current_build_info = Build.model_validate(
+                    jenkins.get_build_info(job_full_path, build_number)
+                )
                 continue
             break
 
-        if build_candidate.result != "SUCCESS":
+        if check_result and current_build_info.result != "SUCCESS":
             raise Fatal(
                 "The build we started has "
-                f"result={build_candidate.result} ({build_candidate.url})"
+                f"result={current_build_info.result} ({current_build_info.url})"
             )
         log().info("build finished successfully")
 
-    if not path_hashes_match(build_candidate.path_hashes, path_hashes):
+    if path_hashes and not path_hashes_match(current_build_info.path_hashes, path_hashes):
         raise Fatal(
-            f"most recent build #{build_candidate.number} has mismatching path hashes: "
-            f"{build_candidate.path_hashes} != {path_hashes}"
+            f"most recent build #{current_build_info.number} has mismatching path hashes: "
+            f"{current_build_info.path_hashes} != {path_hashes}"
         )
 
-    if not build_candidate.artifacts:
+    if not current_build_info.artifacts:
         raise Fatal("Job has no artifacts!")
 
     downloaded_artifacts, skipped_artifacts = download_artifacts(
         jenkins,
-        build_candidate,
+        current_build_info,
         out_dir,
         no_remove_others,
     )
