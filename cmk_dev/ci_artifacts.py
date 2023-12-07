@@ -65,6 +65,9 @@ def parse_args() -> Args:
             " ~/.config/jenkins_jobs/jenkins_jobs.ini is being used."
         ),
     )
+    parser.add_argument(
+        "--timeout", type=int, default=120, help="Timeout in seconds for Jenkins API requests"
+    )
 
     parser.set_defaults(func=lambda *_: parser.print_usage())
     subparsers = parser.add_subparsers(help="available commands", metavar="CMD")
@@ -323,8 +326,7 @@ def jenkins_client(
 
 def _fn_info(args: Args) -> None:
     """Entry point for information about job artifacts"""
-    creds = extract_credentials(args.credentials)
-    with jenkins_client(creds["url"], creds["username"], creds["password"]) as jenkins:
+    with jenkins_client(**extract_credentials(args.credentials), timeout=args.timeout) as jenkins:
         class_name = (job_info := jenkins.get_job_info(args.job))["_class"]
         if class_name == "com.cloudbees.hudson.plugins.folder.Folder":
             print(f"Folder({job_info['name']}, jobs: {len(cast(list[Any], job_info['jobs']))})")
@@ -678,8 +680,7 @@ def _fn_fetch(args: Args) -> None:
 
     out_dir = compose_out_dir(args.base_dir, args.out_dir)
 
-    creds = extract_credentials(args.credentials)
-    with jenkins_client(creds["url"], creds["username"], creds["password"]) as jenkins:
+    with jenkins_client(**extract_credentials(args.credentials), timeout=args.timeout) as jenkins:
         if not str((job_info := jenkins.get_job_info(args.job))["_class"]).endswith("WorkflowJob"):
             raise Fatal(f"{args.job} is not a WorkflowJob")
 
