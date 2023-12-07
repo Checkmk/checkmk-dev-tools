@@ -20,6 +20,7 @@ ci-artifacts = 'cmk_dev.ci_artifacts:main'
 python = "^3.10.4"  # currently lowest supported Python version (CI Build Nodes)
 python-jenkins = "^1"
 pyyaml = "^6.0"
+pydantic = "^2"
 
 [tool.poetry.group.dev.dependencies]
 black = "*"
