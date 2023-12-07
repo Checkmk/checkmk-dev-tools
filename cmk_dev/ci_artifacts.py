@@ -679,120 +679,107 @@ def _fn_fetch(args: Args) -> None:
     """Entry point for fetching artifacts"""
 
     out_dir = compose_out_dir(args.base_dir, args.out_dir)
+    path_hashes = compose_path_hashes(args.base_dir, args.dependency_paths)
 
     with jenkins_client(**extract_credentials(args.credentials), timeout=args.timeout) as jenkins:
         if not str((job_info := jenkins.get_job_info(args.job))["_class"]).endswith("WorkflowJob"):
             raise Fatal(f"{args.job} is not a WorkflowJob")
+        job = Job.model_validate(job_info)
 
-        artifacts = fetch_job_artifacts(
-            Job.model_validate(job_info),
-            base_dir=args.base_dir,
-            out_dir=out_dir,
+        build_candidate = request_matching_build(
+            job,
             jenkins=jenkins,
             params=flatten(args.params),
             params_no_check=flatten(args.params_no_check),
-            dependency_paths=(
-                list(filter(bool, args.dependency_paths or []))
-                and [path for paths in (args.dependency_paths) for path in paths.split(",")]
-            ),
+            path_hashes=path_hashes,
             time_constraints=args.time_constraints,
             omit_new_build=args.omit_new_build,
             force_new_build=args.force_new_build,
-            no_remove_others=args.no_remove_others,
         )
-        for artifact in artifacts:
+
+        for key, value in build_candidate.__dict__.items():
+            log().debug("  %s: %s", key, value)
+
+        for artifact in download_build_artifacts(
+            job.fullName,
+            build_candidate.number,
+            out_dir=out_dir,
+            jenkins=jenkins,
+            no_remove_others=args.no_remove_others,
+            check_result=True,
+            path_hashes=path_hashes,
+        ):
             print(artifact)
 
 
-def fetch_job_artifacts(
+def request_matching_build(
     job: Job,
     *,
-    base_dir: Path,
-    out_dir: Path,
     jenkins: Jenkins,
     params: None | JobParams,
     params_no_check: None | JobParams,
-    dependency_paths: None | Sequence[str],
+    path_hashes: PathHashes,
     time_constraints: None | str,
     omit_new_build: bool,
     force_new_build: bool,
-    no_remove_others: bool,
-) -> Sequence[str]:
-    """Returns artifacts of Jenkins job specified by @job_full_path matching @params and
-    @time_constraints. If none of the existing builds match the conditions a new build will be
-    issued. If the existing build has not finished yet it will be waited for."""
+) -> Build:
+    """Find an existing build (finished, still running or queued) which matches our
+    requirements specified by @job_full_path matching @params and
+    @time_constraints.
+    If none of the existing builds match the conditions a new build will be
+    issued.
+    This can get complicated since we don't know the outcome of unfinished or
+    queued elements yet (result and dependency path hashes).
+    """
     # pylint: disable=too-many-locals
 
-    def elect_build_candidate() -> Build:
-        """Find an existing build (finished, still running or queued) which matches our
-        requirements. This can get complicated since we don't know the outcome of unfinished or
-        queued elements yet (result and dependency path hashes).
-        """
-        # In case we force a new build anyway we don't have to look for an existing one
-        if not force_new_build:
-            # fetch a job's build history first
-            job.expand(jenkins)
+    # In case we force a new build anyway we don't have to look for an existing one
+    if not force_new_build:
+        # fetch a job's build history first
+        job.expand(jenkins)
 
-            # Look for finished builds
-            for build in filter(lambda b: b.finished, job.build_infos.values()):
-                if meets_constraints(build, params, time_constraints, path_hashes):
-                    log().info("found matching finished build: %s (%s)", build.number, build.url)
-                    return build
+        # Look for finished builds
+        for build in filter(lambda b: b.finished, job.build_infos.values()):
+            if meets_constraints(build, params, time_constraints, path_hashes):
+                log().info("found matching finished build: %s (%s)", build.number, build.url)
+                return build
 
-            # Look for still unfinished builds
-            for build in filter(lambda b: not b.finished, job.build_infos.values()):
-                if meets_constraints(build, params, time_constraints, path_hashes):
-                    log().info("found matching unfinished build: %s (%s)", build.number, build.url)
-                    return build
+        # Look for still unfinished builds
+        for build in filter(lambda b: not b.finished, job.build_infos.values()):
+            if meets_constraints(build, params, time_constraints, path_hashes):
+                log().info("found matching unfinished build: %s (%s)", build.number, build.url)
+                return build
 
-            if matching_queue_item := find_matching_queue_item(jenkins, job, params, path_hashes):
-                return Build.model_validate(
-                    jenkins.get_build_info(job.fullName, matching_queue_item)
+        if matching_queue_item := find_matching_queue_item(jenkins, job, params, path_hashes):
+            return Build.model_validate(jenkins.get_build_info(job.fullName, matching_queue_item))
+
+    if omit_new_build:
+        raise Fatal(f"No matching build found for job '{job.name}' but new builds are omitted.")
+
+    parameters = {
+        **(params or {}),
+        **(params_no_check or {}),
+        **(
+            {
+                "DEPENDENCY_PATH_HASHES": ",".join(
+                    f"{key}={value}" for key, value in path_hashes.items()
                 )
+            }
+            if path_hashes
+            else {}
+        ),
+    }
 
-        if omit_new_build:
-            raise Fatal(f"No matching build found for job '{job.name}' but new builds are omitted.")
+    log().info("start new build for %s", job.fullName)
+    log().info("  params=%s", parameters)
 
-        parameters = {
-            **(params or {}),
-            **(params_no_check or {}),
-            **(
-                {
-                    "DEPENDENCY_PATH_HASHES": ",".join(
-                        f"{key}={value}" for key, value in path_hashes.items()
-                    )
-                }
-                if path_hashes
-                else {}
+    return Build.model_validate(
+        jenkins.get_build_info(
+            job.fullName,
+            build_id_from_queue_item(
+                jenkins, jenkins.build_job(job.fullName, parameters=parameters)
             ),
-        }
-
-        log().info("start new build for %s", job.fullName)
-        log().info("  params=%s", parameters)
-
-        return Build.model_validate(
-            jenkins.get_build_info(
-                job.fullName,
-                build_id_from_queue_item(
-                    jenkins, jenkins.build_job(job.fullName, parameters=parameters)
-                ),
-            )
         )
-
-    path_hashes = {path: git_commit_id(base_dir, path) for path in (dependency_paths or [])}
-
-    build_candidate = elect_build_candidate()
-    for key, value in build_candidate.__dict__.items():
-        log().debug("  %s: %s", key, value)
-
-    return download_build_artifacts(
-        job.fullName,
-        build_candidate.number,
-        out_dir=out_dir,
-        jenkins=jenkins,
-        no_remove_others=no_remove_others,
-        check_result=True,
-        path_hashes=path_hashes,
     )
 
 
@@ -806,7 +793,10 @@ def download_build_artifacts(
     check_result: bool,
     path_hashes: None | PathHashes,
 ) -> Sequence[str]:
-    """Download artifacts for given Jenkins job to @out_dir"""
+    """Downloads artifacts of Jenkins job specified by @job_full_path and @build_number to @out_dir.
+    If the existing build has not finished yet it will be waited for.
+    Returns the list of paths to downloaded (or skipped) artifacts."""
+
     current_build_info = Build.model_validate(jenkins.get_build_info(job_full_path, build_number))
     if not current_build_info.finished:
         log().info("build #%s still in progress (%s)", build_number, current_build_info.url)
