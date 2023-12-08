@@ -80,72 +80,89 @@ def parse_args() -> Args:
         help="Print some useful but informal information about a job",
     )
 
+    def apply_common_args(subparser: ArgumentParser) -> None:
+        subparser.add_argument("job", type=str)
+        subparser.add_argument(
+            "-b",
+            "--base-dir",
+            default=".",
+            type=lambda p: Path(p).expanduser(),
+            help="The base directory used to fetch directory/file hashes (see. --dependency-paths)",
+        )
+
+    def apply_request_args(subparser: ArgumentParser) -> None:
+        subparser.add_argument(
+            "-p",
+            "--params",
+            type=split_params,
+            action="append",
+            help="Job parameters used to check existing builds and to start new jobs with",
+        )
+        subparser.add_argument(
+            "--params-no-check",
+            type=split_params,
+            action="append",
+            help="Parameters used to start new jobs with, but not used to check existing builds",
+        )
+        subparser.add_argument(
+            "-d",
+            "--dependency-paths",
+            type=str,
+            action="append",
+            help="Provide list of files/directories git hashes should be compared against a build",
+        )
+        subparser.add_argument(
+            "-t",
+            "--time-constraints",
+            type=str,
+            help=(
+                "Provide a string (currently only 'today') which specifies the max age of a"
+                " build to be considered valid."
+            ),
+        )
+        subparser.add_argument(
+            "-f",
+            "--force-new-build",
+            action="store_true",
+            help="Don't check for existing matching builds, instead start a new build immediately",
+        )
+        subparser.add_argument(
+            "-n",
+            "--omit-new-build",
+            action="store_true",
+            help="Don't issue new builds, even if no matching build could be found",
+        )
+
+    def apply_download_args(subparser: ArgumentParser) -> None:
+        subparser.add_argument(
+            "-o",
+            "--out-dir",
+            default="out",
+            type=Path,
+            help="Directory to put artifacts to - relative to --base-dir if relative",
+        )
+        subparser.add_argument(
+            "--no-remove-others",
+            action="store_true",
+            help="If set, existing files not part of artifacts won't be deleted",
+        )
+
+    parser_request = subparsers.add_parser("request", help="Request a build")
+    parser_request.set_defaults(func=_fn_request_build)
+    apply_common_args(parser_request)
+    apply_request_args(parser_request)
+
+    parser_download = subparsers.add_parser("download")
+    parser_download.set_defaults(func=_fn_download_artifacts)
+    apply_common_args(parser_download)
+    apply_download_args(parser_download)
+    parser_download.add_argument("build_number", type=int, nargs="?")
+
     parser_fetch = subparsers.add_parser("fetch")
     parser_fetch.set_defaults(func=_fn_fetch)
-    parser_fetch.add_argument("job", type=str)
-    parser_fetch.add_argument(
-        "-p",
-        "--params",
-        type=split_params,
-        action="append",
-        help="Job parameters used to check existing builds and to start new jobs with",
-    )
-    parser_fetch.add_argument(
-        "--params-no-check",
-        type=split_params,
-        action="append",
-        help="Job parameters used to start new jobs with, but not used to check existing builds",
-    )
-    parser_fetch.add_argument(
-        "-d",
-        "--dependency-paths",
-        type=str,
-        action="append",
-        help=(
-            "Provide list of files/directories git hashes should be compared against a build"
-            "Important: provide the same relative directories as used in the respective build jobs!"
-        ),
-    )
-    parser_fetch.add_argument(
-        "-t",
-        "--time-constraints",
-        type=str,
-        help=(
-            "Provide a string (currently only 'today') which specifies the max age of a"
-            " build to be considered valid."
-        ),
-    )
-    parser_fetch.add_argument(
-        "-b",
-        "--base-dir",
-        default=".",
-        type=lambda p: Path(p).expanduser(),
-        help="The base directory used to fetch directory/file hashes (see. --dependency-paths)",
-    )
-    parser_fetch.add_argument(
-        "-o",
-        "--out-dir",
-        default="out",
-        type=Path,
-        help="Directory to put artifacts to - relative to --base-dir if relative",
-    )
-    parser_fetch.add_argument(
-        "--no-remove-others",
-        action="store_true",
-        help="If set, existing files not part of artifacts won't be deleted",
-    )
-    parser_fetch.add_argument(
-        "-f",
-        "--force-new-build",
-        action="store_true",
-        help="Don't check for existing matching builds, but start a new build immediately instead",
-    )
-    parser_fetch.add_argument(
-        "-n",
-        "--omit-new-build",
-        action="store_true",
-        help="Don't issue new builds, even if no matching build could be found",
-    )
+    apply_common_args(parser_fetch)
+    apply_request_args(parser_fetch)
+    apply_download_args(parser_fetch)
 
     return parser.parse_args()
 
@@ -675,12 +692,59 @@ def compose_out_dir(base_dir: Path, out_dir: Path) -> Path:
     return out_dir
 
 
-def _fn_fetch(args: Args) -> None:
-    """Entry point for fetching artifacts"""
+def _fn_request_build(args: Args) -> None:
+    """Entry point for a build request"""
+    with jenkins_client(**extract_credentials(args.credentials), timeout=args.timeout) as jenkins:
+        if not str((job_info := jenkins.get_job_info(args.job))["_class"]).endswith("WorkflowJob"):
+            raise Fatal(f"{args.job} is not a WorkflowJob")
+        job = Job.model_validate(job_info)
 
+        build_candidate = request_matching_build(
+            job,
+            jenkins=jenkins,
+            params=flatten(args.params),
+            params_no_check=flatten(args.params_no_check),
+            path_hashes=compose_path_hashes(args.base_dir, args.dependency_paths),
+            time_constraints=args.time_constraints,
+            omit_new_build=args.omit_new_build,
+            force_new_build=args.force_new_build,
+        )
+        print(f"{job.fullName}:{build_candidate.number}:{build_candidate.url}")
+
+
+def _fn_download_artifacts(args: Args) -> None:
+    """Entry point for artifacts download only"""
+    out_dir = args.base_dir / (args.out_dir or "")
+    if out_dir.exists() and not out_dir.is_dir():
+        raise Fatal(f"Output directory path '{out_dir}' exists but is not a directory!")
+
+    split_job_arg = args.job.split(":")
+    job_name = split_job_arg[0]
+    job_number = int(split_job_arg[1]) if len(split_job_arg) > 1 else args.build_number
+
+    if len(split_job_arg) > 1 and args.build_number:
+        raise Fatal("Provide only one of separate build number or composite build name")
+
+    if not job_number:
+        raise Fatal("No build number provided. Use either --build-number or `<job-name>:<number>`.")
+
+    with jenkins_client(**extract_credentials(args.credentials), timeout=args.timeout) as jenkins:
+        for artifact in download_build_artifacts(
+            job_name,
+            job_number,
+            out_dir=out_dir,
+            jenkins=jenkins,
+            no_remove_others=args.no_remove_others,
+            check_result=False,
+            path_hashes=None,
+        ):
+            print(artifact)
+
+
+def _fn_fetch(args: Args) -> None:
+    """Entry point for fetching (request and download combined) artifacts"""
     out_dir = compose_out_dir(args.base_dir, args.out_dir)
     path_hashes = compose_path_hashes(args.base_dir, args.dependency_paths)
-
     with jenkins_client(**extract_credentials(args.credentials), timeout=args.timeout) as jenkins:
         if not str((job_info := jenkins.get_job_info(args.job))["_class"]).endswith("WorkflowJob"):
             raise Fatal(f"{args.job} is not a WorkflowJob")
