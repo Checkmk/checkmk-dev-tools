@@ -4,7 +4,6 @@
 
 # pylint: disable=too-many-branches
 # pylint: disable=too-many-arguments
-# pylint: disable=too-many-instance-attributes
 # pylint: disable=fixme
 
 import logging
@@ -835,7 +834,7 @@ def request_matching_build(
     }
 
     log().info("start new build for %s", job.fullName)
-    log().info("  params=%s", parameters)
+    log().info("  params=%s", compact_dict(parameters))
 
     return Build.model_validate(
         jenkins.get_build_info(
@@ -910,6 +909,13 @@ def main() -> None:
     """Entry point for everything else"""
     try:
         args = parse_args()
+
+        # for some reasons terminal type and properties are not recognized correctly by rich,
+        # so 'temporarily' we force width and color
+        if "CI" in os.environ:
+            os.environ["FORCE_COLOR"] = "true"
+            os.environ["COLUMNS"] = "200"
+
         setup_logging(log(), args.log_level)
 
         log().debug("Parsed args: %s", args)
