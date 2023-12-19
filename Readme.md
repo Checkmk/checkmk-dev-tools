@@ -21,8 +21,6 @@ Install it locally using `pip`:
 
 ### `cmk-dev howto`
 
-### `werk`
-
 ### `ci-artifacts`
 
 `ci-rtifacts` is a tool which makes artifacts of CI jobs (currently only Jenkins)
@@ -97,6 +95,11 @@ Don't look for existing builds, always start a new build instead.
 **`--log-level`**
 
 Provide a Python `logging` level name, e.g. `DEBUG` (case-insensitive)
+
+#### Todo
+
+- [ ] split into `request` and `download`
+- [ ] request CI build from local changes
 
 
 ## Development & Contribution
