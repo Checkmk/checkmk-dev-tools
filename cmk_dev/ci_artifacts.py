@@ -734,7 +734,7 @@ def _fn_download_artifacts(args: Args) -> None:
             out_dir=out_dir,
             jenkins=jenkins,
             no_remove_others=args.no_remove_others,
-            check_result=False,
+            check_result=True,
             path_hashes=None,
         ):
             print(artifact)
@@ -878,7 +878,7 @@ def download_build_artifacts(
                 "The build we started has "
                 f"result={current_build_info.result} ({current_build_info.url})"
             )
-        log().info("build finished successfully")
+        log().info("build finished with result=%s", current_build_info.result)
 
     if path_hashes and not path_hashes_match(current_build_info.path_hashes, path_hashes):
         raise Fatal(
