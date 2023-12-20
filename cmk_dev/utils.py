@@ -8,6 +8,7 @@ import os
 import shlex
 import sys
 import traceback
+from collections.abc import Mapping
 from contextlib import contextmanager, suppress
 from pathlib import Path
 from subprocess import DEVNULL, check_output
@@ -61,7 +62,12 @@ def setup_logging(logger: logging.Logger, level: str = "INFO") -> None:
     if not logging.getLogger().hasHandlers():
         logging.getLogger().setLevel(logging.WARNING)
         shandler = RichHandler(
-            show_time=False, show_path=False, markup=True, console=Console(stderr=True)
+            show_time=False,
+            show_path=False,
+            markup=True,
+            console=Console(
+                stderr=True, color_system="standard" if os.environ.get("FORCE_COLOR") else "auto"
+            ),
         )
         logging.getLogger().addHandler(shandler)
         shandler.setLevel(getattr(logging, level.split("_")[-1]))
@@ -114,3 +120,28 @@ def cwd(path: Path) -> Iterator[None]:
 def process_output(cmd: str) -> str:
     """Return command output as one blob"""
     return check_output(shlex.split(cmd), stderr=DEVNULL, text=True)
+
+
+def compact_dict(
+    mapping: Mapping[str, float | str], *, maxlen: None | int = 10, delim: str = ", "
+) -> str:
+    """Turns a dict into a 'string packed map' (for making a dict human readable)
+    >>> compact_dict({'foo': '23', 'bar': '42'})
+    'foo=23, bar=42'
+    """
+
+    def short(string: str) -> str:
+        return string if maxlen is None or len(string) <= maxlen else f"{string[:maxlen-2]}.."
+
+    return delim.join(
+        f"{k}={short_str}" for k, v in mapping.items() if (short_str := short(str(v)))
+    )
+
+
+def value_from(raw_str: str) -> str | float | int:
+    """Returns an int, a float or the raw input in this order"""
+    with suppress(ValueError):
+        return int(raw_str)
+    with suppress(ValueError):
+        return float(raw_str)
+    return raw_str

@@ -15,6 +15,9 @@ cmk-werk = 'cmk_dev.cmk_werk:main'
 cmk-dev = 'cmk_dev.cli:main'
 active-listen = 'cmk_dev.listen_std:main'
 ci-artifacts = 'cmk_dev.ci_artifacts:main'
+procmon = 'cmk_dev.procmon:main'
+cpumon = 'cmk_dev.cpumon:main'
+check-rpath = 'cmk_dev.check_rpath:main'
 
 [tool.poetry.dependencies]
 python = "^3.10.4"  # currently lowest supported Python version (CI Build Nodes)
@@ -28,13 +31,14 @@ black = "*"
 isort = "*"
 flake8 = "*"
 pytest = "*"
-pytest-cov = "*"
 mypy = "*"
 pylint = "*"
-types-pyyaml = "*"
 twine = "*"
 yamllint = "*"
+pytest-cov = "*"
+types-pyyaml = "*"
 types-requests = "*"
+types-aiofiles = "*"
 
 # not available for Python <3.9
 # pylint-per-file-ignores = "^1.2.1"
