@@ -747,7 +747,7 @@ async def prune_builder_cache() -> tuple[Sequence[str], Sequence[str], int]:
             result.append(line)
         return result
 
-    cmd = ("docker", "builder", "prune", "--force", "--filter=until=24h", "--keep-storage=100G")
+    cmd = ("docker", "builder", "prune", "--force", "--filter=until=24h", "--keep-storage=50G")
     process = await create_subprocess_exec(*cmd, stdout=PIPE, stderr=PIPE)
     assert process.stdout and process.stderr
     stdout, stderr, returncode = await asyncio.gather(
@@ -937,6 +937,7 @@ async def crawl_images(state: DockerState) -> None:
                 )
                 await register_image(state, parent_id)
                 state.images[parent_id].children.add(image_id)
+            await update_image_registration(state, image_id)
         else:
             log().error("registered image %s does not exist anymore", short_id(image_id))
             unregister_image(state, image_id)

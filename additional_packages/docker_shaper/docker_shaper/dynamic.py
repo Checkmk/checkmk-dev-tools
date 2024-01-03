@@ -901,11 +901,13 @@ def expired_idents(global_state: GlobalState, image: Image, now) -> Iterable[tup
 
     # only remove a container directly if there are no tags we could monitor
     if not image.tags:
-        is_expired, *_, reason = check_expiration(
-            global_state, image.short_id, now, created_timestamp
-        )
-        if is_expired:
-            yield image.short_id, reason
+        # todo: dangling images should be deleted
+        # is_expired, *_, reason = check_expiration(
+        #     global_state, image.short_id, now, created_timestamp
+        # )
+        # if is_expired:
+        #     yield image.short_id, reason
+        yield image.short_id, "no tags"
 
 
 async def remove_image_ident(global_state: GlobalState, ident: str) -> None:
