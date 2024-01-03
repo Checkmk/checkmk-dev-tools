@@ -197,7 +197,7 @@ def handle_docker_state_message(
             raise SystemExit(1)
 
         elif mtype in {"container_add", "container_del", "container_update"}:
-            log().info(
+            log().debug(
                 "container info: %s / %s (%d total)",
                 short_id(mtext),
                 mtype,
@@ -226,7 +226,7 @@ def handle_docker_state_message(
                     )
 
         elif mtype in {"image_add", "image_del", "image_update"}:
-            log().info(
+            log().debug(
                 "image info: %s / %s (%d total)",
                 short_id(mtext),
                 mtype,
@@ -236,7 +236,7 @@ def handle_docker_state_message(
         elif mtype in {"volume_add", "volume_del"}:
             volume_id = mtext
 
-            log().info(
+            log().debug(
                 "volume info: '%s' / %s (%d total)",
                 short_id(volume_id),
                 mtype,
@@ -246,7 +246,7 @@ def handle_docker_state_message(
         elif mtype in {"network_add", "network_del"}:
             network_id = mtext
 
-            log().info(
+            log().debug(
                 "network info: '%s' / %s (%d total)",
                 short_id(network_id),
                 mtype,
@@ -436,6 +436,8 @@ async def dump_global_state(global_state: GlobalState):
         f"│ event horizon:     {date_str(global_state.docker_state.event_horizon)}"
         f" / {age_str(datetime.now(), global_state.docker_state.event_horizon)}"
     )
+    print(f"| cycle log level:   `kill -USR1 {os.getpid()}`")
+    print(f"| write trace:       `kill -USR2 {os.getpid()}`")
     print(
         f"│ intervals:         "
         f"{', '.join('='.join(map(str, i)) for i in global_state.intervals.items())}"
