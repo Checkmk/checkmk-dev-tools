@@ -32,13 +32,10 @@ from contextlib import suppress
 from pathlib import Path
 from typing import cast
 
-from rich.logging import RichHandler
-from rich.markup import escape as markup_escape
-from textual import on, work
-from textual.app import App, ComposeResult
-from textual.events import Message
-from textual.scrollbar import ScrollTo
-from textual.widgets import RichLog, Tree
+from textual import work
+from textual.app import ComposeResult
+from textual.widgets import Tree
+from trickkiste.base_tui_app import TuiBaseApp
 
 from docker_shaper import docker_state, dynamic, utils
 from docker_shaper.dynamic import Container, ImageIdent, Network, Volume, short_id
@@ -47,33 +44,6 @@ from docker_shaper.dynamic import Container, ImageIdent, Network, Volume, short_
 def log() -> logging.Logger:
     """Returns the logger instance to use here"""
     return logging.getLogger("dockermon")
-
-
-class RichLogHandler(RichHandler):
-    """Redirects rich.RichHanlder capabilities to a textual.RichLog"""
-
-    def __init__(self, widget: RichLog):
-        super().__init__(show_path=False, markup=True, show_time=False)
-        self.widget: RichLog = widget
-
-    def emit(self, record: logging.LogRecord) -> None:
-        record.args = record.args and tuple(
-            markup_escape(arg) if isinstance(arg, str) else arg for arg in record.args
-        )
-        record.msg = markup_escape(record.msg)
-        self.widget.write(
-            self.render(
-                record=record,
-                message_renderable=self.render_message(record, self.format(record)),
-                traceback=None,
-            )
-        )
-
-
-class LockingRichLog(RichLog):
-    @on(ScrollTo)
-    def on_scroll_to(self, _event: Message) -> None:
-        self.auto_scroll = self.is_vertical_scroll_end
 
 
 def container_markup(container: Container) -> str:
@@ -94,14 +64,11 @@ def container_markup(container: Container) -> str:
     )
 
 
-class DockerMon(App[None]):
+class DockerMon(TuiBaseApp):
     """Tree view for Jenkins upstream vs. JJB generated jobs"""
-
-    CSS = "RichLog {height: 20; border: solid grey;}"
 
     def __init__(self) -> None:
         super().__init__()
-        self._richlog = LockingRichLog()
         self.docker_stats_tree: Tree[None] = Tree("Docker stats")
         self.removal_patterns: Mapping[str, int] = {}
         self.pattern_usage_count: Mapping[str, int] = {}
@@ -109,7 +76,7 @@ class DockerMon(App[None]):
     def compose(self) -> ComposeResult:
         """Set up the UI"""
         yield self.docker_stats_tree
-        yield self._richlog
+        yield from super().compose()
 
     @work(exit_on_error=True)
     async def run_docker_stats(self) -> None:
@@ -334,14 +301,6 @@ class DockerMon(App[None]):
 
     async def on_mount(self) -> None:
         """UI entry point"""
-        logging.getLogger().handlers = [handler := RichLogHandler(self._richlog)]
-        handler.setFormatter(
-            logging.Formatter(
-                "│ %(asctime)s │ [grey53]%(funcName)-32s[/] │ [bold white]%(message)s[/]",
-                datefmt="%Y-%m-%d %H:%M:%S",
-            )
-        )
-
         with suppress(FileNotFoundError):
             config = utils.load_module(Path("~/.docker_shaper").expanduser() / "config.py")
             self.removal_patterns = config.removal_rules(111)
@@ -350,10 +309,10 @@ class DockerMon(App[None]):
         self.produce()
 
 
-def main():
-    logging.getLogger().setLevel(logging.DEBUG)
+def main() -> None:
+    logging.getLogger().setLevel(logging.WARNING)
     log().setLevel(logging.DEBUG)
-    DockerMon().run()
+    DockerMon().execute()
 
 
 if __name__ == "__main__":

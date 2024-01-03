@@ -30,6 +30,7 @@ apparat = "^0.0.8"
 pydantic = "^2.4"
 rich = "^13"
 textual = "^0"
+trickkiste = "^0.0.5"
 
 
 [tool.poetry.group.dev.dependencies]
