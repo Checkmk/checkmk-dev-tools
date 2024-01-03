@@ -60,7 +60,7 @@ def container_markup(container: Container) -> str:
     return (
         f"[bold]{container.short_id}[/] / {container.name:<26s}{image_str}{status_str}"
         f" - {container.cpu_usage() * 100:7.2f}%"
-        f" - {container.mem_usage() >> 20:5d}MiB"
+        f" - {container.mem_usage() >> 20:6d}MiB"
     )
 
 
@@ -216,7 +216,12 @@ class DockerMon(TuiBaseApp):
                     container_nodes[cnt.id].remove()
                     del container_nodes[cnt.id]
 
-                containers_node.set_label(f"Containers ({len(self.docker_state.containers)})")
+                total_cpu = sum(map(lambda c: c.cpu_usage(), self.docker_state.containers.values()))
+                total_mem = sum(map(lambda c: c.mem_usage(), self.docker_state.containers.values()))
+                containers_node.set_label(
+                    f"Containers ({len(self.docker_state.containers):2d})"
+                    f" {' ' * 56} [bold]{total_cpu * 100:7.2f}% - {total_mem >> 20:6d}MiB[/]"
+                )
 
             elif mtype in {"image_add", "image_del", "image_update"}:
                 image_id = mtext
