@@ -12,55 +12,46 @@ import sys
 import time
 from argparse import ArgumentParser
 from argparse import Namespace as Args
-from collections.abc import Iterator, Mapping, Sequence
-from configparser import ConfigParser
-from contextlib import contextmanager, suppress
+from collections.abc import Mapping, Sequence
+from contextlib import suppress
 from datetime import datetime
 from itertools import chain
 from pathlib import Path
 from subprocess import check_output
-from typing import Any, Literal, Union, cast
+from typing import Any, cast
 
-from pydantic import BaseModel, Json, model_validator
 from trickkiste.logging_helper import apply_common_logging_cli_args, setup_logging
 from trickkiste.misc import compact_dict, cwd, md5from, split_params
 
+from cmk_dev.jenkins_utils import (
+    AugmentedJenkinsClient,
+    Build,
+    BuildId,
+    GenMap,
+    Job,
+    JobParams,
+    JobParamValue,
+    QueueId,
+    apply_common_jenkins_cli_args,
+    extract_credentials,
+    params_from,
+)
+from cmk_dev.utils import Fatal
 from jenkins import Jenkins
 
-GenMapVal = Union[None, bool, str, float, int, "GenMapArray", "GenMap"]
-GenMapArray = Sequence[GenMapVal]
-GenMap = Mapping[str, GenMapVal]
+# Todo: warn about missing parameters
+# Todo: default to `$REPO/package_download` rather than `out`
+# Todo: decent error message when providing wrong path
 
 PathHashes = Mapping[str, str]
-JobParamValue = Union[int, str]
-JobParams = Mapping[str, JobParamValue]
-
-QueueId = int
-BuildId = int
-
-
-class Fatal(RuntimeError):
-    """Rien ne va plus"""
 
 
 def parse_args() -> Args:
     """Cool git like multi command argument parser"""
     parser = ArgumentParser(__doc__)
+
     apply_common_logging_cli_args(parser)
-    parser.add_argument(
-        "-c",
-        "--credentials",
-        type=split_params,
-        help=(
-            "Provide 'url', 'username' and 'password' "
-            "or 'username_env', 'url_env' and 'password_env' respectively."
-            " If no credentials are provided, the JJB config at "
-            " ~/.config/jenkins_jobs/jenkins_jobs.ini is being used."
-        ),
-    )
-    parser.add_argument(
-        "--timeout", type=int, default=120, help="Timeout in seconds for Jenkins API requests"
-    )
+    apply_common_jenkins_cli_args(parser)
 
     parser.set_defaults(func=lambda *_: parser.print_usage())
     subparsers = parser.add_subparsers(help="available commands", metavar="CMD")
@@ -170,154 +161,12 @@ def flatten(params: None | Sequence[JobParams]) -> None | JobParams:
     return {key: value for param in params for key, value in param.items()} if params else None
 
 
-class SimpleBuild(BaseModel):
-    """Models a Jenkins job build"""
-
-    url: str
-    number: int
-
-
-class Build(SimpleBuild):
-    """Models a Jenkins job build"""
-
-    timestamp: datetime
-    result: None | Literal["FAILURE", "SUCCESS", "ABORTED", "UNSTABLE"]
-    path_hashes: Mapping[str, str]
-    artifacts: Sequence[str]
-    inProgress: bool
-    parameters: Mapping[str, str | bool]
-
-    @property
-    def finished(self) -> bool:
-        """Convenience.."""
-        return not self.inProgress
-
-    def __str__(self) -> str:
-        return (
-            f"Build({self.result}, {self.timestamp}, params={{{compact_dict(self.parameters)}}}, "
-            f"hashes={{{compact_dict(self.path_hashes)}}})"
-        )
-
-    @model_validator(mode="before")
-    @classmethod
-    def correct(cls, obj: Json[dict[str, Any]]) -> Json[dict[str, Any]]:
-        """Validates and pre-processes some attributes"""
-        # TODO: what's the difference between .in_progress and .building?
-        if obj.get("inProgress") != obj.get("building"):
-            log().error(
-                "in_progress=%s and build_info['building']=%s are inconsistent",
-                obj.get("inProgress"),
-                obj.get("building"),
-            )
-        if not obj.get("result") in {None, "FAILURE", "SUCCESS", "ABORTED", "UNSTABLE"}:
-            log().error("Build result has unexpected value %s", obj.get("result"))
-        return {
-            **obj,
-            **{
-                "parameters": params_from(obj, "ParametersAction", "parameters"),
-                "path_hashes": cast(
-                    Mapping[str, str],
-                    params_from(obj, "CustomBuildPropertiesAction", "properties").get(
-                        "path_hashes", {}
-                    ),
-                ),
-                "artifacts": [
-                    cast(Mapping[str, str], a)["relativePath"]
-                    for a in cast(GenMapArray, obj["artifacts"])
-                ],
-                # SCM could be retrieved via 'hudson.plugins.git.util.BuildData'
-            },
-        }
-
-
-class Job(BaseModel):
-    """Models a Jenkins job"""
-
-    name: str
-    fullName: str
-    url: str
-    builds: Sequence[SimpleBuild] = []
-    build_infos: Mapping[int, Build] = {}
-
-    def __str__(self) -> str:
-        return f"Job('{self.fullName}', {len(self.builds or [])} builds)"
-
-    @model_validator(mode="before")
-    @classmethod
-    def correct(cls, obj: Json[dict[str, Any]]) -> Json[dict[str, Any]]:
-        """Only checks for consistency"""
-        if obj.get("queueItem") or obj.get("inQueue"):
-            log().error(
-                "Inconsistent values for job_info.get('queueItem')=%s and"
-                " job_info.get('inQueue')=%s",
-                obj.get("queueItem"),
-                obj.get("inQueue"),
-            )
-        return obj
-
-    def expand(self, jenkins: Jenkins, max_build_infos: None | int = None) -> "Job":
-        """Fetches elements which are not part of the simple job instance"""
-        self.build_infos = {
-            (
-                build := Build.model_validate(jenkins.get_build_info(self.fullName, b.number))
-            ).number: build
-            for b in self.builds[:max_build_infos]
-        }
-        return self
-
-
-def extract_credentials(credentials: None | Mapping[str, str]) -> Mapping[str, str]:
-    """Turns the information provided via --credentials into actual values"""
-    if credentials and (
-        any(key in credentials for key in ("url", "url_env"))
-        and any(key in credentials for key in ("username", "username_env"))
-        and any(key in credentials for key in ("password", "password_env"))
-    ):
-        try:
-            return {
-                "url": credentials.get("url") or os.environ[credentials.get("url_env", "")],
-                "username": credentials.get("username")
-                or os.environ[credentials.get("username_env", "")],
-                "password": credentials.get("password")
-                or os.environ[credentials.get("password_env", "")],
-            }
-        except KeyError as exc:
-            raise Fatal(f"Requested environment variable {exc} is not defined") from exc
-
-    log().debug(
-        "Credentials haven't been (fully) provided via --credentials, trying JJB config instead"
-    )
-    jjb_config = ConfigParser()
-    jjb_config.read(Path("~/.config/jenkins_jobs/jenkins_jobs.ini").expanduser())
-    return {
-        "url": jjb_config["jenkins"]["url"],
-        "username": jjb_config["jenkins"]["user"],
-        "password": jjb_config["jenkins"]["password"],
-    }
-
-
-@contextmanager
-def jenkins_client(
-    url: str, username: str, password: str, timeout: None | int = None
-) -> Iterator[Jenkins]:
-    """Create a Jenkins client interface using the config file used for JJB"""
-    client = Jenkins(
-        url=url,
-        username=username,
-        password=password,
-        timeout=timeout if timeout is not None else 20,
-    )
-    whoami = client.get_whoami()
-    if not whoami["id"] == username:
-        log().warning("client.get_whoami() does not match jenkins_config['user']")
-
-    yield client
-
-
 def _fn_info(args: Args) -> None:
     """Entry point for information about job artifacts"""
-    with jenkins_client(**extract_credentials(args.credentials), timeout=args.timeout) as jenkins:
-        class_name = (job_info := jenkins.get_job_info(args.job))["_class"]
+    with AugmentedJenkinsClient(
+        **extract_credentials(args.credentials), timeout=args.timeout
+    ) as jenkins:
+        class_name = (job_info := jenkins.raw_job_info(args.job))["_class"]
         if class_name == "com.cloudbees.hudson.plugins.folder.Folder":
             print(f"Folder({job_info['name']}, jobs: {len(cast(list[Any], job_info['jobs']))})")
         elif class_name == "org.jenkinsci.plugins.workflow.job.WorkflowJob":
@@ -344,21 +193,6 @@ def git_commit_id(git_dir: Path, path: None | Path | str = None) -> str:
             ["git", "log", "--pretty=tformat:%H", "-n1"] + ([str(path)] if path else []),
             text=True,
         ).strip("\n")
-
-
-def params_from(build_info: GenMap, action_name: str, item_name: str) -> GenMap:
-    """Return job parameters of provided @build_info as dict"""
-    actions = cast(GenMapArray, build_info.get("actions") or [])
-    for action in map(lambda a: cast(GenMap, a), actions):
-        if cast(str, action.get("_class") or "").rsplit(".", 1)[-1] == action_name:
-            if action_name == "ParametersAction":
-                return {
-                    str(p["name"]): p["value"]
-                    for p in map(lambda a: cast(GenMap, a), cast(GenMapArray, action[item_name]))
-                }
-            if action_name == "CustomBuildPropertiesAction":
-                return cast(GenMap, action[item_name])
-    return {}
 
 
 def extract_path_hashes(parameters: GenMap) -> PathHashes:
@@ -521,7 +355,7 @@ def meets_constraints(
             "strange: build #%s has expected path hashes set but we don't care?", build.number
         )
 
-    if build.finished:
+    if build.completed:
         if expected_path_hashes and not build.path_hashes:
             log().warning(
                 "strange: build #%s has expected path hashes but didn't store the actual ones!",
@@ -561,11 +395,11 @@ def meets_constraints(
         pass
 
     elif time_constraints == "today":
-        if build.timestamp.date() != datetime.now().date():
+        if datetime.fromtimestamp(build.timestamp).date() != datetime.now().date():
             log().debug(
                 "build #%s does not meet time constraints: %s != %s",
                 build.number,
-                build.timestamp.date(),
+                datetime.fromtimestamp(build.timestamp).date(),
                 now.date(),
             )
             if result:
@@ -600,13 +434,13 @@ def build_id_from_queue_item(client: Jenkins, queue_id: QueueId) -> BuildId:
 
 
 def find_matching_queue_item(
-    jenkins: Jenkins,
+    jenkins_client: AugmentedJenkinsClient,
     job: Job,
     params: None | JobParams,
     path_hashes: PathHashes,
 ) -> None | BuildId:
     """Looks for a queued build matching job and parameters and returns the QueueId"""
-    for queue_item in jenkins.get_queue_info():
+    for queue_item in jenkins_client.client.get_queue_info():
         if not cast(str, queue_item.get("_class", "")).startswith("hudson.model.Queue"):
             continue
         if cast(str, cast(GenMap, queue_item.get("task", {})).get("url", "")) != job.url:
@@ -641,7 +475,7 @@ def find_matching_queue_item(
                 path_hashes,
             )
             continue
-        return build_id_from_queue_item(jenkins, cast(int, queue_item.get("id")))
+        return build_id_from_queue_item(jenkins_client.client, cast(int, queue_item.get("id")))
 
     return None
 
@@ -667,14 +501,15 @@ def compose_out_dir(base_dir: Path, out_dir: Path) -> Path:
 
 def _fn_request_build(args: Args) -> None:
     """Entry point for a build request"""
-    with jenkins_client(**extract_credentials(args.credentials), timeout=args.timeout) as jenkins:
-        if not str((job_info := jenkins.get_job_info(args.job))["_class"]).endswith("WorkflowJob"):
+    with AugmentedJenkinsClient(
+        **extract_credentials(args.credentials), timeout=args.timeout
+    ) as jenkins_client:
+        if not (job := jenkins_client.job_info(args.job)).type == "WorkflowJob":
             raise Fatal(f"{args.job} is not a WorkflowJob")
-        job = Job.model_validate(job_info)
 
         build_candidate = request_matching_build(
             job,
-            jenkins=jenkins,
+            jenkins_client=jenkins_client,
             params=flatten(args.params),
             params_no_check=flatten(args.params_no_check),
             path_hashes=compose_path_hashes(args.base_dir, args.dependency_paths),
@@ -682,7 +517,7 @@ def _fn_request_build(args: Args) -> None:
             omit_new_build=args.omit_new_build,
             force_new_build=args.force_new_build,
         )
-        print(f"{job.fullName}:{build_candidate.number}:{build_candidate.url}")
+        print(f"{job.path}:{build_candidate.number}:{build_candidate.url}")
 
 
 def _fn_download_artifacts(args: Args) -> None:
@@ -701,12 +536,14 @@ def _fn_download_artifacts(args: Args) -> None:
     if not job_number:
         raise Fatal("No build number provided. Use either --build-number or `<job-name>:<number>`.")
 
-    with jenkins_client(**extract_credentials(args.credentials), timeout=args.timeout) as jenkins:
+    with AugmentedJenkinsClient(
+        **extract_credentials(args.credentials), timeout=args.timeout
+    ) as jenkins_client:
         for artifact in download_build_artifacts(
             job_name,
             job_number,
             out_dir=out_dir,
-            jenkins=jenkins,
+            jenkins_client=jenkins_client,
             no_remove_others=args.no_remove_others,
             check_result=True,
             path_hashes=None,
@@ -718,14 +555,15 @@ def _fn_fetch(args: Args) -> None:
     """Entry point for fetching (request and download combined) artifacts"""
     out_dir = compose_out_dir(args.base_dir, args.out_dir)
     path_hashes = compose_path_hashes(args.base_dir, args.dependency_paths)
-    with jenkins_client(**extract_credentials(args.credentials), timeout=args.timeout) as jenkins:
-        if not str((job_info := jenkins.get_job_info(args.job))["_class"]).endswith("WorkflowJob"):
+    with AugmentedJenkinsClient(
+        **extract_credentials(args.credentials), timeout=args.timeout
+    ) as jenkins_client:
+        if not (job := jenkins_client.job_info(args.job)).type == "WorkflowJob":
             raise Fatal(f"{args.job} is not a WorkflowJob")
-        job = Job.model_validate(job_info)
 
         build_candidate = request_matching_build(
             job,
-            jenkins=jenkins,
+            jenkins_client=jenkins_client,
             params=flatten(args.params),
             params_no_check=flatten(args.params_no_check),
             path_hashes=path_hashes,
@@ -738,10 +576,10 @@ def _fn_fetch(args: Args) -> None:
             log().debug("  %s: %s", key, value)
 
         for artifact in download_build_artifacts(
-            job.fullName,
+            job.path,
             build_candidate.number,
             out_dir=out_dir,
-            jenkins=jenkins,
+            jenkins_client=jenkins_client,
             no_remove_others=args.no_remove_others,
             check_result=True,
             path_hashes=path_hashes,
@@ -752,7 +590,7 @@ def _fn_fetch(args: Args) -> None:
 def request_matching_build(
     job: Job,
     *,
-    jenkins: Jenkins,
+    jenkins_client: AugmentedJenkinsClient,
     params: None | JobParams,
     params_no_check: None | JobParams,
     path_hashes: PathHashes,
@@ -773,22 +611,22 @@ def request_matching_build(
     # In case we force a new build anyway we don't have to look for an existing one
     if not force_new_build:
         # fetch a job's build history first
-        job.expand(jenkins)
+        job.expand(jenkins_client)
 
         # Look for finished builds
-        for build in filter(lambda b: b.finished, job.build_infos.values()):
+        for build in filter(lambda b: b.completed, job.build_infos.values()):
             if meets_constraints(build, params, time_constraints, path_hashes):
                 log().info("found matching finished build: %s (%s)", build.number, build.url)
                 return build
 
         # Look for still unfinished builds
-        for build in filter(lambda b: not b.finished, job.build_infos.values()):
+        for build in filter(lambda b: not b.completed, job.build_infos.values()):
             if meets_constraints(build, params, time_constraints, path_hashes):
                 log().info("found matching unfinished build: %s (%s)", build.number, build.url)
                 return build
 
-        if matching_queue_item := find_matching_queue_item(jenkins, job, params, path_hashes):
-            return Build.model_validate(jenkins.get_build_info(job.fullName, matching_queue_item))
+        if matching_item := find_matching_queue_item(jenkins_client, job, params, path_hashes):
+            return jenkins_client.build_info(job.path, matching_item)
 
     if omit_new_build:
         raise Fatal(f"No matching build found for job '{job.name}' but new builds are omitted.")
@@ -807,16 +645,15 @@ def request_matching_build(
         ),
     }
 
-    log().info("start new build for %s", job.fullName)
+    log().info("start new build for %s", job.path)
     log().info("  params=%s", compact_dict(parameters))
 
-    return Build.model_validate(
-        jenkins.get_build_info(
-            job.fullName,
-            build_id_from_queue_item(
-                jenkins, jenkins.build_job(job.fullName, parameters=parameters)
-            ),
-        )
+    return jenkins_client.build_info(
+        job.path,
+        build_id_from_queue_item(
+            jenkins_client.client,
+            jenkins_client.client.build_job(job.path, parameters=parameters),
+        ),
     )
 
 
@@ -825,25 +662,23 @@ def download_build_artifacts(
     build_number: int,
     *,
     out_dir: Path,
-    jenkins: Jenkins,
+    jenkins_client: AugmentedJenkinsClient,
     no_remove_others: bool,
     check_result: bool,
     path_hashes: None | PathHashes,
 ) -> Sequence[str]:
     """Downloads artifacts of Jenkins job specified by @job_full_path and @build_number to @out_dir.
-    If the existing build has not finished yet it will be waited for.
+    If the existing build has not completed yet it will be waited for.
     Returns the list of paths to downloaded (or skipped) artifacts."""
 
-    current_build_info = Build.model_validate(jenkins.get_build_info(job_full_path, build_number))
-    if not current_build_info.finished:
+    current_build_info = jenkins_client.build_info(job_full_path, build_number)
+    if not current_build_info.completed:
         log().info("build #%s still in progress (%s)", build_number, current_build_info.url)
         while True:
-            if not current_build_info.finished:
+            if not current_build_info.completed:
                 log().debug("build %s in progress", build_number)
                 time.sleep(10)
-                current_build_info = Build.model_validate(
-                    jenkins.get_build_info(job_full_path, build_number)
-                )
+                current_build_info = jenkins_client.build_info(job_full_path, build_number)
                 continue
             break
 
@@ -864,7 +699,7 @@ def download_build_artifacts(
         raise Fatal("Job has no artifacts!")
 
     downloaded_artifacts, skipped_artifacts = download_artifacts(
-        jenkins,
+        jenkins_client.client,
         current_build_info,
         out_dir,
         no_remove_others,
