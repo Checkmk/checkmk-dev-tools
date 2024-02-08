@@ -22,8 +22,9 @@ from subprocess import check_output
 from typing import Any, Literal, Union, cast
 
 from pydantic import BaseModel, Json, model_validator
+from trickkiste.logging_helper import apply_common_logging_cli_args, setup_logging
+from trickkiste.misc import compact_dict, cwd, md5from, split_params
 
-from cmk_dev.utils import cwd, md5from, setup_logging
 from jenkins import Jenkins
 
 GenMapVal = Union[None, bool, str, float, int, "GenMapArray", "GenMap"]
@@ -45,14 +46,7 @@ class Fatal(RuntimeError):
 def parse_args() -> Args:
     """Cool git like multi command argument parser"""
     parser = ArgumentParser(__doc__)
-    parser.add_argument(
-        "--log-level",
-        "-l",
-        choices=["ALL_DEBUG", "DEBUG", "INFO", "WARN", "ERROR", "CRITICAL"],
-        help="Sets the logging level - ALL_DEBUG sets all other loggers to DEBUG, too",
-        type=str.upper,
-        default="INFO",
-    )
+    apply_common_logging_cli_args(parser)
     parser.add_argument(
         "-c",
         "--credentials",
@@ -171,29 +165,9 @@ def log() -> logging.Logger:
     return logging.getLogger("cmk-dev.cia")
 
 
-def split_params(string: str) -> JobParams:
-    """Splits a 'string packed map' into a dict
-    >>> split_params("foo=23,bar=42")
-    {'foo': '23', 'bar': '42'}
-    """
-    return {k: v for p in string.split(",") if p for k, v in (p.split("="),)}
-
-
 def flatten(params: None | Sequence[JobParams]) -> None | JobParams:
     """Turns a list of job parameter dicts into one"""
     return {key: value for param in params for key, value in param.items()} if params else None
-
-
-def compact_dict(mapping: GenMap) -> str:
-    """Turns a dict into a 'string packed map' (for making a dict human readable)
-    >>> compact_dict({'foo': '23', 'bar': '42'})
-    'foo=23, bar=42'
-    """
-
-    def short(string: str) -> str:
-        return string if len(string) <= 12 else f"{string[:10]}.."
-
-    return ", ".join(f"{k}={short_str}" for k, v in mapping.items() if (short_str := short(str(v))))
 
 
 class SimpleBuild(BaseModel):
@@ -250,7 +224,7 @@ class Build(SimpleBuild):
                 "artifacts": [
                     cast(Mapping[str, str], a)["relativePath"]
                     for a in cast(GenMapArray, obj["artifacts"])
-                ]
+                ],
                 # SCM could be retrieved via 'hudson.plugins.git.util.BuildData'
             },
         }

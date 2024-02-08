@@ -1335,6 +1335,17 @@ files = [
 ]
 
 [[package]]
+name = "trickkiste"
+version = "0.0.7"
+description = "Random useful stuff"
+optional = false
+python-versions = ">=3.10.4,<4"
+files = [
+    {file = "trickkiste-0.0.7-py3-none-any.whl", hash = "sha256:d0dc214f04b9d5e939948c204400d00fdeed6e151cde33638310f7ff0f50e47b"},
+    {file = "trickkiste-0.0.7.tar.gz", hash = "sha256:461ea3605dc5207870577dcc88f53698f2e195a60df968f75683e2a2805047a4"},
+]
+
+[[package]]
 name = "twine"
 version = "4.0.2"
 description = "Collection of utilities for publishing packages on PyPI"
@@ -1476,4 +1487,4 @@ testing = ["big-O", "jaraco.functools", "jaraco.itertools", "more-itertools", "p
 [metadata]
 lock-version = "2.0"
 python-versions = "^3.10.4"
-content-hash = "b8790e3f140a98a9604e06a339858728cd2d9601413b26ea09bda37518de6b07"
+content-hash = "9bdcaf9fed2a249fd7581c6d1fd0019abc41be54555077a8b105722e660f1908"

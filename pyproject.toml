@@ -25,6 +25,9 @@ pyyaml = "^6.0"
 pydantic = "^2"
 rich = "*"
 
+trickkiste = "^0.0.7"
+# trickkiste  = {path = "../../_HOME/trickkiste", develop = true}
+
 [tool.poetry.group.dev.dependencies]
 black = "*"
 isort = "*"
