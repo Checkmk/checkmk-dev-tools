@@ -15,11 +15,11 @@ from configparser import ConfigParser
 from pathlib import Path
 from typing import Any, Literal, Union, cast
 
+from jenkins import Jenkins
 from pydantic import BaseModel, Json, model_validator
 from trickkiste.misc import compact_dict, date_str, dur_str, split_params
 
 from cmk_dev.utils import Fatal
-from jenkins import Jenkins
 
 GenMapVal = Union[None, bool, str, float, int, "GenMapArray", "GenMap"]
 GenMapArray = Sequence[GenMapVal]
@@ -412,10 +412,15 @@ class AugmentedJenkinsClient:
             for key, value in json.loads(
                 self.client.run_script(
                     """
+                import groovy.json.JsonOutput;
+
                 Runtime runtime = Runtime.getRuntime();
-                println("{\\
-                    \\"freeMemory\\": ${runtime.freeMemory()}, \\
-                    \\"maxMemory\\": ${runtime.maxMemory()}}");
+
+                json = JsonOutput.toJson([
+                    freeMemory: runtime.freeMemory(),
+                    maxMemory: runtime.maxMemory(),
+                ])
+                println(json);
                 """
                 )
             ).items()
