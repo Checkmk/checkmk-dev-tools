@@ -4,11 +4,13 @@
 
 import sys
 
-from cmk_dev.utils import compact_dict, process_output, value_from
+from trickkiste.misc import compact_dict, process_output
+
+from cmk_dev.utils import value_from
 
 
-def main() -> None:
-    """Main entrypoint"""
+def cpumon(cpus: str) -> None:
+    """Basically runs `ps` and shows results for given CPUs only (if given, else all)"""
     header, *lines = (
         x.split(maxsplit=8)
         for x in process_output("ps -axo pid,user,pcpu,psr,sz,rss,args --sort=-pcpu").split("\n")
@@ -20,8 +22,13 @@ def main() -> None:
         key=lambda x: x["%CPU"],
         reverse=True,
     ):
-        if len(sys.argv) < 2 or str(proc_info["PSR"]) in sys.argv[1].split(","):
+        if not cpus or str(proc_info["PSR"]) in cpus.split(","):
             print(compact_dict(proc_info, delim="\t", maxlen=50))
+
+
+def main() -> None:
+    """Main entrypoint"""
+    cpumon(sys.argv[1] if len(sys.argv) > 1 else "")
 
 
 if __name__ == "__main__":

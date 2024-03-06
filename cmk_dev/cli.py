@@ -12,6 +12,12 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Sequence, Union
 
+import cmk_dev.check_rpath
+import cmk_dev.cpumon
+
+# import cmk_dev.procmon
+import cmk_dev.pycinfo
+
 
 def parse_args(argv: Union[Sequence[str], None] = None) -> Args:
     """Cool git like multi command argument parser"""
@@ -21,14 +27,14 @@ def parse_args(argv: Union[Sequence[str], None] = None) -> Args:
     parser.set_defaults(func=lambda *_: parser.print_usage())
     subparsers = parser.add_subparsers(help="available commands", metavar="CMD")
 
-    parser_info = subparsers.add_parser("help")
-    parser_info.set_defaults(func=lambda *_: parser.print_help())
+    parser_help = subparsers.add_parser("help")
+    parser_help.set_defaults(func=lambda *_: parser.print_help())
 
     parser_info = subparsers.add_parser("info")
-    parser_info.set_defaults(func=fn_info, help="Prints information about checkmk-dev-tools")
-
-    parser_dia = subparsers.add_parser("image-alias", aliases=["dia"])
-    parser_dia.set_defaults(func=fn_dia, help="Operate on docker image aliases (DIA)")
+    parser_info.set_defaults(
+        func=fn_info,
+        help="Prints information about checkmk-dev-tools",
+    )
 
     parser_howto = subparsers.add_parser("howto")
     parser_howto.set_defaults(func=fn_howto)
@@ -36,11 +42,64 @@ def parse_args(argv: Union[Sequence[str], None] = None) -> Args:
         "topic", nargs="?", type=str, help="Provides HowTos to specific topics"
     )
 
-    parser_rpath = subparsers.add_parser("rpath")
+    parser_dia = subparsers.add_parser("image-alias", aliases=["dia"])
+    parser_dia.set_defaults(
+        func=fn_dia,
+        help="Operate on docker image aliases (DIA)",
+    )
+
+    parser_rpath = subparsers.add_parser("check-rpath", aliases=["rpath"])
     parser_rpath.set_defaults(
         func=fn_rpath,
-        help="Checks and sets RPATH information of ELF binaries found recursively at provided directory",
+        help="Checks and sets RPATH information of ELF specified binaries",
     )
+    parser_rpath.add_argument(
+        "path", nargs="?", type=Path, help="File or directory to check (recursively)"
+    )
+
+    parser_pycinfo = subparsers.add_parser("pycinfo")
+    parser_pycinfo.set_defaults(
+        func=fn_pycinfo,
+        help="Shows content of pyc files",
+    )
+    parser_pycinfo.add_argument(
+        "paths", nargs="*", type=Path, help="File(s) or directory(ies) to check (recursively)"
+    )
+
+    # parser_procmon = subparsers.add_parser("procmon")
+    # parser_procmon.set_defaults(
+    #     func=fn_procmon,
+    #     help="Shows content of pyc files",
+    # )
+
+    parser_cpumon = subparsers.add_parser("cpumon")
+    parser_cpumon.set_defaults(
+        func=fn_cpumon,
+        help="Shows content of pyc files",
+    )
+    parser_cpumon.add_argument(
+        "cpus", type=str, help="Comma separated list of CPUs to monitor", nargs="?"
+    )
+
+    parser_laccess = subparsers.add_parser("last-access")
+    parser_laccess.set_defaults(
+        func=fn_laccess,
+        help="Shows content of pyc files",
+    )
+
+    parser_npicked = subparsers.add_parser("not-picked")
+    parser_npicked.set_defaults(
+        func=fn_npicked,
+        help="Shows content of pyc files",
+    )
+
+    parser_alisten = subparsers.add_parser("active-listen")
+    parser_alisten.set_defaults(
+        func=fn_alisten,
+        help="Shows output of provided command only if needed",
+    )
+
+    subparsers.help = f"[{' '.join(str(c) for c in subparsers.choices)}]"
 
     return parser.parse_args(argv)
 
@@ -84,6 +143,7 @@ def fn_info(_args: Args) -> None:
 
 
 def fn_howto(args: Args) -> None:
+    """Entry function for howto"""
     topics = {
         "new-distro": """
         Please look here for now:
@@ -122,10 +182,42 @@ def fn_howto(args: Args) -> None:
 
 
 def fn_rpath(args: Args) -> None:
+    """Entry function for check-rpath"""
+    cmk_dev.check_rpath.check_rpath(args.path)
+
+
+def fn_pycinfo(args: Args) -> None:
+    """Entry function for pycinfo"""
+    cmk_dev.pycinfo.pycinfo(args.paths)
+
+
+def fn_cpumon(args: Args) -> None:
+    """Entry function for cpumon"""
+    cmk_dev.cpumon.cpumon(args.cpus)
+
+
+def fn_dia(_args: Args) -> None:
+    """Entry function for image-alias"""
     print("Noch nix")
 
 
-def fn_dia(args: Args) -> None:
+def fn_procmon(_args: Args) -> None:
+    """Entry function for procmon"""
+    print("Noch nix")
+
+
+def fn_laccess(_args: Args) -> None:
+    """Entry function for last-access"""
+    print("Noch nix")
+
+
+def fn_npicked(_args: Args) -> None:
+    """Entry function for not-picked"""
+    print("Noch nix")
+
+
+def fn_alisten(_args: Args) -> None:
+    """Entry function for active-listen"""
     print("Noch nix")
 
 

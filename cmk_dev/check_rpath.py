@@ -63,12 +63,12 @@ def check_integrity(path: Path) -> Iterator[tuple[str, str]]:
             yield "mismatching-root", f"{resolved} (from {rpath!r})"
 
 
-def main() -> None:
+def check_rpath(root_dir: str | Path) -> None:
     """Search and check"""
     issue_count = 0
     try:
-        root_dir = Path(sys.argv[1] if len(sys.argv) > 1 else ".")
-        for file in filter(is_elf, root_dir.glob("**/*")):
+        root_path = Path(root_dir)
+        for file in filter(is_elf, root_path.glob("**/*")):
             for issue_type, info in check_integrity(file):
                 issue_count += 1
                 severity, description = ISSUE_TYPE[issue_type]
@@ -78,6 +78,11 @@ def main() -> None:
     finally:
         print(f"found {issue_count} issues")
         raise SystemExit(1 if issue_count else 0)
+
+
+def main() -> None:
+    """Main entrypoint"""
+    check_rpath(sys.argv[1] if len(sys.argv) > 1 else ".")
 
 
 if __name__ == "__main__":
