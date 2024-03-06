@@ -21,6 +21,7 @@ import sys
 import time
 from collections.abc import Iterable
 from datetime import datetime
+from importlib.util import source_hash
 from pathlib import Path
 
 try:
@@ -39,7 +40,7 @@ except ModuleNotFoundError:
     TAG_CLOSE = ""
 
 
-def view_pyc_file(path: Path, verbose: bool = False) -> None:
+def view_pyc_file(path: Path, strip: str = "", verbose: bool = False) -> None:
     """Read and display a content of the Python`s bytecode in a pyc-file."""
 
     assert sys.version_info.major == 3 and sys.version_info.minor >= 7
@@ -72,11 +73,13 @@ def view_pyc_file(path: Path, verbose: bool = False) -> None:
         except ValueError as exc:
             error_str = f"could not load code object: {exc}"
             level = max(level, 1)
-    # print(path.as_posix())
-    assert path.parent.name == "__pycache__"
+
+    # assert path.parent.name == "__pycache__"
     source_dir = path.parent.parent.absolute()
     py_file_path = source_dir / f"{path.stem[:path.stem.find('.cpython')]}.py"
-    assert py_file_path.exists(), path
+
+    if not py_file_path.exists():
+        level = max(level, 2)
 
     co_filename = code and Path(code.co_filename)
     tag_co_filename = TAG_NONE
@@ -86,6 +89,9 @@ def view_pyc_file(path: Path, verbose: bool = False) -> None:
             if co_filename.is_absolute()
             else Path().joinpath(*py_file_path.parts[: -len(co_filename.parts)]) / co_filename
         )
+        if path_from_co_filename != py_file_path:
+            tag_co_filename = TAG_WARNING
+            level = max(level, 1)
         if not path_from_co_filename.exists():
             tag_co_filename = TAG_WARNING
             level = max(level, 1)
@@ -96,7 +102,9 @@ def view_pyc_file(path: Path, verbose: bool = False) -> None:
 
     if timestamp:
         timestamp_str = str(timestamp)
-        if int(timestamp.timestamp()) == int(py_file_path.lstat().st_mtime):
+        if py_file_path.exists() and int(timestamp.timestamp()) == int(
+            py_file_path.lstat().st_mtime
+        ):
             tag_timestamp = TAG_OK
         else:
             tag_timestamp = TAG_WARNING
@@ -107,7 +115,7 @@ def view_pyc_file(path: Path, verbose: bool = False) -> None:
 
     if size is not None:
         size_str = f"{size:7d}"
-        if size == py_file_path.lstat().st_size:
+        if py_file_path.exists() and size == py_file_path.lstat().st_size:
             tag_size = TAG_OK
         else:
             tag_size = TAG_WARNING
@@ -118,14 +126,19 @@ def view_pyc_file(path: Path, verbose: bool = False) -> None:
 
     tag_hashstr = TAG_NONE
     if file_hash is not None:
+        with py_file_path.open("rb") as source_file:
+            actual_hash = source_hash(source_file.read())
+        tag_hashstr = TAG_OK if file_hash == actual_hash else TAG_WARNING
         hash_str = binascii.hexlify(file_hash).decode("utf-8")
     else:
         hash_str = "----------------"
 
     tag_level = TAG_NONE if level < 1 else TAG_WARNING if level < 2 else TAG_ERROR
 
+    # assert path.absolute().as_posix().startswith(strip)
+    pyc_path_str = path.absolute().as_posix()[len(strip) :] if strip else path.as_posix()
     print(
-        f"{path.as_posix():110s}"
+        f"{pyc_path_str:110s}"
         f" | {tag_level}{'OK' if level < 1 else 'WARN' if level < 2 else 'ERROR':5s}{TAG_CLOSE}"
         # f" | magic: {magic}"
         # f" | bitfield: {bit_field}"
@@ -136,9 +149,6 @@ def view_pyc_file(path: Path, verbose: bool = False) -> None:
         f" | hash: {tag_hashstr}{hash_str}{TAG_CLOSE}"
         f" | co_filename: {tag_co_filename}{co_filename or error_str}{TAG_CLOSE}"
     )
-
-    if path_from_co_filename:
-        assert path_from_co_filename == py_file_path, f"{path_from_co_filename}!={py_file_path}"
 
     if code and verbose:
         dis.disassemble(code)  # long output
@@ -166,7 +176,7 @@ def pycinfo(paths: Iterable[str | Path]) -> None:
     for path in map(Path, paths):
         if path.is_dir():
             for file_path in path.glob("**/*.pyc"):
-                view_pyc_file(file_path)
+                view_pyc_file(file_path, f"{path.absolute().as_posix()}/")
         else:
             view_pyc_file(path)
 
