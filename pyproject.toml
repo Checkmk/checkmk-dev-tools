@@ -21,6 +21,7 @@ pycinfo = 'cmk_dev.pycinfo:main'
 not-picked = 'cmk_dev.not_picked:main'
 last-access = 'cmk_dev.last_access:main'
 activity-from-fs = 'cmk_dev.activity_from_fs:main'
+binreplace = 'cmk_dev.binreplace:main'
 
 [tool.poetry.dependencies]
 python = "^3.10.4"  # currently lowest supported Python version (CI Build Nodes)

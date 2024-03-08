@@ -12,6 +12,7 @@ from contextlib import suppress
 from pathlib import Path
 from typing import Sequence, Union
 
+import cmk_dev.binreplace
 import cmk_dev.check_rpath
 import cmk_dev.cpumon
 
@@ -98,6 +99,13 @@ def parse_args(argv: Union[Sequence[str], None] = None) -> Args:
         func=fn_alisten,
         help="Shows output of provided command only if needed",
     )
+
+    parser_binreplace = subparsers.add_parser("binreplace")
+    parser_binreplace.set_defaults(
+        func=fn_binreplace,
+        help="Replaces strings in files binary-awarely",
+    )
+    cmk_dev.binreplace.apply_cli_arguments(parser_binreplace)
 
     subparsers.help = f"[{' '.join(str(c) for c in subparsers.choices)}]"
 
@@ -194,6 +202,11 @@ def fn_pycinfo(args: Args) -> None:
 def fn_cpumon(args: Args) -> None:
     """Entry function for cpumon"""
     cmk_dev.cpumon.cpumon(args.cpus)
+
+
+def fn_binreplace(args: Args) -> None:
+    """Entry function for cpumon"""
+    cmk_dev.binreplace.main(args)
 
 
 def fn_dia(_args: Args) -> None:
