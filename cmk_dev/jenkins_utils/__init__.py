@@ -31,6 +31,8 @@ JobParams = Mapping[str, JobParamValue]
 QueueId = int
 BuildId = int
 
+JobResult = Literal["FAILURE", "SUCCESS", "ABORTED", "UNSTABLE"]
+
 
 def log() -> logging.Logger:
     """Convenience function retrieves 'our' logger"""
@@ -71,7 +73,7 @@ class Build(SimpleBuild):
     number: int
     timestamp: int  # easier to handle than NaiveDatetime
     duration: int  # easier to handle than timedelta
-    result: None | Literal["FAILURE", "SUCCESS", "ABORTED", "UNSTABLE"]
+    result: None | JobResult
     path_hashes: Mapping[str, str]
     artifacts: Sequence[str]
     inProgress: bool
@@ -312,8 +314,7 @@ class AugmentedJenkinsClient:
 
                 if jtype == "Folder":
                     yield node_path, Folder.model_validate(raw_job)
-                    for sub_element in recursive_traverse(raw_job.get("jobs", []), node_path):
-                        yield sub_element
+                    yield from recursive_traverse(raw_job.get("jobs", []), node_path)
                 elif jtype in {"WorkflowJob", "FreeStyleProject"}:
                     yield node_path, SimpleJob.model_validate(raw_job)
                 else:
@@ -334,8 +335,7 @@ class AugmentedJenkinsClient:
                 path = path + (folder,)
                 yield path, Folder(name=folder)
 
-            for element in recursive_traverse(sub_jobs, path):
-                yield element
+            yield from recursive_traverse(sub_jobs, path)
 
     def build_time(self, job: str | Job, build_nr: None | int) -> None | int:
         """Returns the buildtime timestamp in seconds"""
