@@ -136,8 +136,13 @@ def parse_args() -> Args:
     apply_common_args(parser_request)
     apply_request_args(parser_request)
 
+    parser_await_result = subparsers.add_parser("await-result")
+    parser_await_result.set_defaults(func=_fn_await_and_handle_build, download=False)
+    apply_common_args(parser_await_result)
+    parser_await_result.add_argument("build_number", type=int, nargs="?")
+
     parser_download = subparsers.add_parser("download")
-    parser_download.set_defaults(func=_fn_download_artifacts)
+    parser_download.set_defaults(func=_fn_await_and_handle_build, download=True)
     apply_common_args(parser_download)
     apply_download_args(parser_download)
     parser_download.add_argument("build_number", type=int, nargs="?")
@@ -226,6 +231,9 @@ def download_artifacts(
     fp_url = f"{build.url}api/json?tree=fingerprint[hash]"
     log().debug("fetch artifact fingerprints from %s", fp_url)
 
+    if not build.artifacts:
+        raise Fatal("Job has no artifacts!")
+
     # create new fingerprints from artifact names an fingerprint hashes, keeping their order
     artifact_hashes = dict(
         zip(
@@ -282,6 +290,12 @@ def download_artifacts(
             log().debug("Remove superfluous file %s", path)
             with suppress(FileNotFoundError):
                 (out_dir / path).unlink()
+    log().info(
+        "%d artifacts available in '%s' (%d skipped, because they were up to date locally)",
+        len(downloaded_artifacts) + len(skipped_artifacts),
+        out_dir,
+        len(skipped_artifacts),
+    )
 
     return downloaded_artifacts, skipped_artifacts
 
@@ -520,9 +534,9 @@ def _fn_request_build(args: Args) -> None:
         print(f"{job.path}:{build_candidate.number}:{build_candidate.url}")
 
 
-def _fn_download_artifacts(args: Args) -> None:
+def _fn_await_and_handle_build(args: Args) -> None:
     """Entry point for artifacts download only"""
-    out_dir = args.base_dir / (args.out_dir or "")
+    out_dir = args.base_dir / (getattr(args, "out_dir", "") or "")
     if out_dir.exists() and not out_dir.is_dir():
         raise Fatal(f"Output directory path '{out_dir}' exists but is not a directory!")
 
@@ -539,16 +553,25 @@ def _fn_download_artifacts(args: Args) -> None:
     with AugmentedJenkinsClient(
         **extract_credentials(args.credentials), timeout=args.timeout
     ) as jenkins_client:
-        for artifact in download_build_artifacts(
+        completed_build = await_build(
             job_name,
             job_number,
-            out_dir=out_dir,
             jenkins_client=jenkins_client,
-            no_remove_others=args.no_remove_others,
             check_result=True,
             path_hashes=None,
-        ):
-            print(artifact)
+        )
+        if args.download:
+            for artifact in chain(
+                *download_artifacts(
+                    jenkins_client.client,
+                    completed_build,
+                    out_dir,
+                    args.no_remove_others,
+                )
+            ):
+                print(artifact)
+        else:
+            print(f"Build was {completed_build.result}")
 
 
 def _fn_fetch(args: Args) -> None:
@@ -575,14 +598,21 @@ def _fn_fetch(args: Args) -> None:
         for key, value in build_candidate.__dict__.items():
             log().debug("  %s: %s", key, value)
 
-        for artifact in download_build_artifacts(
+        completed_build = await_build(
             job.path,
             build_candidate.number,
-            out_dir=out_dir,
             jenkins_client=jenkins_client,
-            no_remove_others=args.no_remove_others,
             check_result=True,
             path_hashes=path_hashes,
+        )
+
+        for artifact in chain(
+            *download_artifacts(
+                jenkins_client.client,
+                completed_build,
+                out_dir,
+                args.no_remove_others,
+            )
         ):
             print(artifact)
 
@@ -657,20 +687,17 @@ def request_matching_build(
     )
 
 
-def download_build_artifacts(
+def await_build(
     job_full_path: str,
     build_number: int,
     *,
-    out_dir: Path,
     jenkins_client: AugmentedJenkinsClient,
-    no_remove_others: bool,
     check_result: bool,
     path_hashes: None | PathHashes,
-) -> Sequence[str]:
-    """Downloads artifacts of Jenkins job specified by @job_full_path and @build_number to @out_dir.
-    If the existing build has not completed yet it will be waited for.
-    Returns the list of paths to downloaded (or skipped) artifacts."""
-
+) -> Build:
+    """Awaits a Jenkins job build specified by @job_full_path and @build_number and returns the
+    awaited Build object. Unexpected build failures or non-matching path hashes will be raised on.
+    """
     current_build_info = jenkins_client.build_info(job_full_path, build_number)
     if not current_build_info.completed:
         log().info("build #%s still in progress (%s)", build_number, current_build_info.url)
@@ -682,12 +709,13 @@ def download_build_artifacts(
                 continue
             break
 
-        if check_result and current_build_info.result != "SUCCESS":
-            raise Fatal(
-                "The build we started has "
-                f"result={current_build_info.result} ({current_build_info.url})"
-            )
         log().info("build finished with result=%s", current_build_info.result)
+
+    if check_result and current_build_info.result != "SUCCESS":
+        raise Fatal(
+            "The build we started has "
+            f"result={current_build_info.result} ({current_build_info.url})"
+        )
 
     if path_hashes and not path_hashes_match(current_build_info.path_hashes, path_hashes):
         raise Fatal(
@@ -695,23 +723,7 @@ def download_build_artifacts(
             f"{current_build_info.path_hashes} != {path_hashes}"
         )
 
-    if not current_build_info.artifacts:
-        raise Fatal("Job has no artifacts!")
-
-    downloaded_artifacts, skipped_artifacts = download_artifacts(
-        jenkins_client.client,
-        current_build_info,
-        out_dir,
-        no_remove_others,
-    )
-    log().info(
-        "%d artifacts available in '%s' (%d skipped, because they were up to date locally)",
-        len(downloaded_artifacts) + len(skipped_artifacts),
-        out_dir,
-        len(skipped_artifacts),
-    )
-
-    return list(chain(downloaded_artifacts, skipped_artifacts))
+    return current_build_info
 
 
 def main() -> None:
