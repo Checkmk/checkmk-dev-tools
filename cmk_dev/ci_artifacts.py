@@ -6,6 +6,7 @@
 # pylint: disable=too-many-arguments
 # pylint: disable=fixme
 
+import json
 import logging
 import os
 import sys
@@ -110,12 +111,6 @@ def parse_args() -> Args:
             action="store_true",
             help="Don't check for existing matching builds, instead start a new build immediately",
         )
-        subparser.add_argument(
-            "-n",
-            "--omit-new-build",
-            action="store_true",
-            help="Don't issue new builds, even if no matching build could be found",
-        )
 
     def apply_download_args(subparser: ArgumentParser) -> None:
         subparser.add_argument(
@@ -135,6 +130,15 @@ def parse_args() -> Args:
     parser_request.set_defaults(func=_fn_request_build)
     apply_common_args(parser_request)
     apply_request_args(parser_request)
+    parser_request.add_argument(
+        "--passive",
+        action="store_true",
+        help=(
+            "Instead of actually triggering new builds, write out the information needed to"
+            " trigger a build instead. To be used inside pipline scripts in order to keep track"
+            " of issuer."
+        ),
+    )
 
     parser_await_result = subparsers.add_parser("await-result")
     parser_await_result.set_defaults(func=_fn_await_and_handle_build, download=False)
@@ -152,6 +156,12 @@ def parse_args() -> Args:
     apply_common_args(parser_fetch)
     apply_request_args(parser_fetch)
     apply_download_args(parser_fetch)
+    parser_fetch.add_argument(
+        "-n",
+        "--omit-new-build",
+        action="store_true",
+        help="Don't issue new builds, even if no matching build could be found",
+    )
 
     return parser.parse_args()
 
@@ -514,24 +524,76 @@ def compose_out_dir(base_dir: Path, out_dir: Path) -> Path:
 
 
 def _fn_request_build(args: Args) -> None:
-    """Entry point for a build request"""
+    """Entry point for a build request
+    If none of the existing builds match the conditions a new build will be
+    issued.
+    This can get complicated since we don't know the outcome of unfinished or
+    queued elements yet (result and dependency path hashes).
+    """
     with AugmentedJenkinsClient(
         **extract_credentials(args.credentials), timeout=args.timeout
     ) as jenkins_client:
         if not (job := jenkins_client.job_info(args.job)).type == "WorkflowJob":
             raise Fatal(f"{args.job} is not a WorkflowJob")
+        # In case we force a new build anyway we don't have to look for an existing one
+        if matching_build := (
+            None
+            if args.force_new_build
+            else identify_matching_build(
+                job,
+                jenkins_client=jenkins_client,
+                params=flatten(args.params),
+                path_hashes=compose_path_hashes(args.base_dir, args.dependency_paths),
+                time_constraints=args.time_constraints,
+            )
+        ):
+            print(
+                json.dumps(
+                    {
+                        "existing": {
+                            "path": job.path,
+                            "number": matching_build.number,
+                            "url": matching_build.url,
+                            "result": matching_build.result,
+                            "new_build": False,
+                            # "parameters": matching_build.parameters,
+                            # "path_hashes": matching_build.path_hashes,
+                        }
+                    }
+                )
+            )
+            return
 
-        build_candidate = request_matching_build(
-            job,
-            jenkins_client=jenkins_client,
+        new_build_params = compose_build_params(
             params=flatten(args.params),
             params_no_check=flatten(args.params_no_check),
             path_hashes=compose_path_hashes(args.base_dir, args.dependency_paths),
-            time_constraints=args.time_constraints,
-            omit_new_build=args.omit_new_build,
-            force_new_build=args.force_new_build,
         )
-        print(f"{job.path}:{build_candidate.number}:{build_candidate.url}")
+        if args.passive:
+            print(
+                json.dumps(
+                    {
+                        "new_build": {
+                            "path": job.path,
+                            "params": new_build_params,
+                        }
+                    }
+                )
+            )
+        else:
+            new_build = trigger_build(jenkins_client, job, new_build_params)
+            print(
+                json.dumps(
+                    {
+                        "triggered_build": {
+                            "path": job.path,
+                            "number": new_build.number,
+                            "url": new_build.url,
+                            "params": new_build_params,
+                        }
+                    }
+                )
+            )
 
 
 def _fn_await_and_handle_build(args: Args) -> None:
@@ -560,18 +622,27 @@ def _fn_await_and_handle_build(args: Args) -> None:
             check_result=True,
             path_hashes=None,
         )
-        if args.download:
-            for artifact in chain(
-                *download_artifacts(
-                    jenkins_client.client,
-                    completed_build,
-                    out_dir,
-                    args.no_remove_others,
-                )
-            ):
-                print(artifact)
-        else:
-            print(f"Build was {completed_build.result}")
+        print(
+            json.dumps(
+                {
+                    "result": completed_build.result,
+                    "artifacts": (
+                        list(
+                            chain(
+                                *download_artifacts(
+                                    jenkins_client.client,
+                                    completed_build,
+                                    out_dir,
+                                    args.no_remove_others,
+                                )
+                            )
+                        )
+                        if args.download
+                        else None
+                    ),
+                }
+            )
+        )
 
 
 def _fn_fetch(args: Args) -> None:
@@ -583,16 +654,29 @@ def _fn_fetch(args: Args) -> None:
     ) as jenkins_client:
         if not (job := jenkins_client.job_info(args.job)).type == "WorkflowJob":
             raise Fatal(f"{args.job} is not a WorkflowJob")
+        # In case we force a new build anyway we don't have to look for an existing one
+        matching_build = (
+            None
+            if args.force_new_build
+            else identify_matching_build(
+                job,
+                jenkins_client=jenkins_client,
+                params=flatten(args.params),
+                path_hashes=compose_path_hashes(args.base_dir, args.dependency_paths),
+                time_constraints=args.time_constraints,
+            )
+        )
+        if args.omit_new_build and not matching_build:
+            raise Fatal(f"No matching build found for job '{job.name}' but new builds are omitted.")
 
-        build_candidate = request_matching_build(
+        build_candidate = matching_build or trigger_build(
+            jenkins_client,
             job,
-            jenkins_client=jenkins_client,
-            params=flatten(args.params),
-            params_no_check=flatten(args.params_no_check),
-            path_hashes=path_hashes,
-            time_constraints=args.time_constraints,
-            omit_new_build=args.omit_new_build,
-            force_new_build=args.force_new_build,
+            compose_build_params(
+                params=flatten(args.params),
+                params_no_check=flatten(args.params_no_check),
+                path_hashes=compose_path_hashes(args.base_dir, args.dependency_paths),
+            ),
         )
 
         for key, value in build_candidate.__dict__.items():
@@ -605,63 +689,69 @@ def _fn_fetch(args: Args) -> None:
             check_result=True,
             path_hashes=path_hashes,
         )
-
-        for artifact in chain(
-            *download_artifacts(
-                jenkins_client.client,
-                completed_build,
-                out_dir,
-                args.no_remove_others,
+        print(
+            json.dumps(
+                {
+                    "result": completed_build.result,
+                    "artifacts": (
+                        list(
+                            chain(
+                                *download_artifacts(
+                                    jenkins_client.client,
+                                    completed_build,
+                                    out_dir,
+                                    args.no_remove_others,
+                                )
+                            )
+                        )
+                    ),
+                }
             )
-        ):
-            print(artifact)
+        )
 
 
-def request_matching_build(
+def identify_matching_build(
     job: Job,
     *,
     jenkins_client: AugmentedJenkinsClient,
     params: None | JobParams,
-    params_no_check: None | JobParams,
     path_hashes: PathHashes,
     time_constraints: None | str,
-    omit_new_build: bool,
-    force_new_build: bool,
-) -> Build:
+) -> None | Build:
     """Find an existing build (finished, still running or queued) which matches our
     requirements specified by @job_full_path matching @params and
     @time_constraints.
-    If none of the existing builds match the conditions a new build will be
-    issued.
-    This can get complicated since we don't know the outcome of unfinished or
-    queued elements yet (result and dependency path hashes).
     """
     # pylint: disable=too-many-locals
 
-    # In case we force a new build anyway we don't have to look for an existing one
-    if not force_new_build:
-        # fetch a job's build history first
-        job.expand(jenkins_client)
+    # fetch a job's build history first
+    job.expand(jenkins_client)
 
-        # Look for finished builds
-        for build in filter(lambda b: b.completed, job.build_infos.values()):
-            if meets_constraints(build, params, time_constraints, path_hashes):
-                log().info("found matching finished build: %s (%s)", build.number, build.url)
-                return build
+    # Look for finished builds
+    for build in filter(lambda b: b.completed, job.build_infos.values()):
+        if meets_constraints(build, params, time_constraints, path_hashes):
+            log().info("found matching finished build: %s (%s)", build.number, build.url)
+            return build
 
-        # Look for still unfinished builds
-        for build in filter(lambda b: not b.completed, job.build_infos.values()):
-            if meets_constraints(build, params, time_constraints, path_hashes):
-                log().info("found matching unfinished build: %s (%s)", build.number, build.url)
-                return build
+    # Look for still unfinished builds
+    for build in filter(lambda b: not b.completed, job.build_infos.values()):
+        if meets_constraints(build, params, time_constraints, path_hashes):
+            log().info("found matching unfinished build: %s (%s)", build.number, build.url)
+            return build
 
-        if matching_item := find_matching_queue_item(jenkins_client, job, params, path_hashes):
-            return jenkins_client.build_info(job.path, matching_item)
+    if matching_item := find_matching_queue_item(jenkins_client, job, params, path_hashes):
+        return jenkins_client.build_info(job.path, matching_item)
 
-    if omit_new_build:
-        raise Fatal(f"No matching build found for job '{job.name}' but new builds are omitted.")
+    return None
 
-    parameters = {
+
+def compose_build_params(
+    params: None | JobParams,
+    params_no_check: None | JobParams,
+    path_hashes: PathHashes,
+) -> JobParams:
+    """Convenience function combining job parameters"""
+    return {
         **(params or {}),
         **(params_no_check or {}),
         **(
@@ -675,14 +765,21 @@ def request_matching_build(
         ),
     }
 
+
+def trigger_build(
+    jenkins_client: AugmentedJenkinsClient,
+    job: Job,
+    params: JobParams,
+) -> Build:
+    """Convenience function triggering a build with given @params and waiting for build number"""
     log().info("start new build for %s", job.path)
-    log().info("  params=%s", compact_dict(parameters))
+    log().info("  params=%s", compact_dict(params))
 
     return jenkins_client.build_info(
         job.path,
         build_id_from_queue_item(
             jenkins_client.client,
-            jenkins_client.client.build_job(job.path, parameters=parameters),
+            jenkins_client.client.build_job(job.path, parameters=params),
         ),
     )
 
