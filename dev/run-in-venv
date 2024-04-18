@@ -1,7 +1,11 @@
 #!/usr/bin/env sh
 
-# This script is just here to run pipenv in a standard single-point-of-truth
-# way. Feel free to run it manually instead.
+# This script is just here to run `poetry run` in a standard single-point-of-truth
+# way and it makes sure the virtual environment is up to date with the lock file.
+# Note that pyproject.toml <-> poetry.lock consistency are _not_ checked (as this
+# has to be done in a more clever way since not every update to pyproject.toml
+# results in a different poetry.lock file.
+# Feel free to run `poetry run` manually instead.
 set -e
 
 if type pyenv >/dev/null 2>&1; then
@@ -9,4 +13,50 @@ if type pyenv >/dev/null 2>&1; then
     # eval "$(pyenv virtualenv-init -)"
 fi
 
-poetry "$@"
+PROJECT_ROOT="$(cd "$(dirname "$(dirname "$0")")" >/dev/null 2>&1 && pwd)"
+LOCK_FILE="${PROJECT_ROOT}/poetry.lock"
+# Instead of storing a constant path to a virtual environment we store a command.
+# This is because in principal a dynamic approach like
+#   $(poetry env info --path)
+# might be used, which is slower but respects settings which allow for different
+# locations than just $PROJECT_ROOT/.venv we can't know in advance
+VENV_CMD="echo ${PROJECT_ROOT}/.venv"
+
+if [ ! -f "${LOCK_FILE}" ]; then
+    echo >&2 "${LOCK_FILE} does not exist. Create one with 'poetry lock' first"
+    exit 1
+fi
+
+OS_HASH="$(sha1sum < "/etc/os-release" | cut -c 1-8)"
+LOCK_FILE_HASH="$(sha1sum < "${LOCK_FILE}" | cut -c 1-8)"
+
+# To avoid having to re-install every time install-groups change we need a hash file
+# for every requested component
+LOCK_AND_OS_HASH_FILE="lock_and_os-$(echo "${POETRY_INSTALL_OPTS}" | sha1sum | cut -c 1-8).hash"
+
+# Check if virtual environment is up to date by comparing actual and stored hashes
+# of poetry.lock combined with a os-fingerprint
+# If only the lock-file hashes match but os-hash differ the venv folder needs to
+# be removed to avoid conflicting binary artifacts
+if [ ! "$(${VENV_CMD})" ] || \
+   [ -z "$(${VENV_CMD})" ] || \
+   [ ! -f "$(${VENV_CMD})/${LOCK_AND_OS_HASH_FILE}" ] || \
+   [ ! "$(cat "$(${VENV_CMD})/${LOCK_AND_OS_HASH_FILE}")" = "${OS_HASH} ${LOCK_FILE_HASH}" ]
+then
+    # in case the hash file exists and the OS-hash is different we need to remove the
+    # virtual environment since created packages might be incompatible
+    if [ ! -f "$(${VENV_CMD})/${LOCK_AND_OS_HASH_FILE}" ] || \
+       [ ! "$(cut -d' ' -f1 < "$(${VENV_CMD})/${LOCK_AND_OS_HASH_FILE}")" = "${OS_HASH}" ]
+    then
+        echo >&2 "$(${VENV_CMD})/${LOCK_AND_OS_HASH_FILE} does not exist or OS hashes differ -> removing $(${VENV_CMD})"
+        rm -rf "$(${VENV_CMD})"
+    else
+        echo >&2 "$(${VENV_CMD})/${LOCK_AND_OS_HASH_FILE} has non matching lock-file-hash -> updating $(${VENV_CMD})"
+    fi
+    # shellcheck disable=SC2086
+    poetry install ${POETRY_INSTALL_OPTS}
+    # note: don't store and reuse path to hash file as it might change on `poetry install`
+    echo "${OS_HASH} ${LOCK_FILE_HASH}" > "$(${VENV_CMD})/${LOCK_AND_OS_HASH_FILE}"
+fi
+
+poetry run "$@"

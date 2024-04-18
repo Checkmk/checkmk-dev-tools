@@ -8,7 +8,7 @@ set -e
 
 echo "Run validity checkers.."
 
-if git status 2>/dev/null; then 
+if git status 2>/dev/null; then
     git status
 fi
 
@@ -21,4 +21,3 @@ dev/check-python-linting "$@"
 #dev/check-python-typing $@
 dev/check-yaml-linting "$@"
 dev/check-shellscripts "$@"
-

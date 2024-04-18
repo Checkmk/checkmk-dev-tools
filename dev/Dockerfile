@@ -1,6 +1,5 @@
 FROM debian:11
 
-
 RUN apt-get update
 RUN apt-get install -y apt-utils
 RUN apt-get install -y git shellcheck curl vim
@@ -48,4 +47,3 @@ RUN eval "$(pyenv init -)" \
     && python3 -m pip install --upgrade pip pipenv
 
 ENTRYPOINT ["sh", "-c", "eval \"$(pyenv init -)\" && \"$@\"", "-s"]
-

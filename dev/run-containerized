@@ -37,7 +37,7 @@ fi
 # todo: map .pyenv download cache dir in case another version of python gets installed
 
 docker run -t --rm \
-    $TERMINAL_FLAG \
+    "${TERMINAL_FLAG}" \
     --name "${PROJECT_NAME}" \
     --net=host \
     --mount "type=bind,source=""${LOCAL_HOMEDIR}""/.bash_history,target=""${CONTAINER_HOMEDIR}""/.bash_history" \
@@ -51,4 +51,3 @@ docker run -t --rm \
     --user "$USER" \
     "${IMAGE_NAME}" \
     "$@"
-

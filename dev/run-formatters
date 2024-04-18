@@ -11,6 +11,5 @@ ARGS=( "${@:-.}" )
 cd "$(dirname "$(dirname "$(realpath "$0")")")" || exit 1
 
 # run formatters in a row
-"dev/run-in-venv" run python -m isort "${ARGS[@]}"
-"dev/run-in-venv" run python -m black "${ARGS[@]}"
-
+"dev/run-in-venv" python -m isort "${ARGS[@]}"
+"dev/run-in-venv" python -m black "${ARGS[@]}"

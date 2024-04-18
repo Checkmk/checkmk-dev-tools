@@ -9,5 +9,4 @@ ARGS=( "${@:-.}" )
 # run from root of current project
 cd "$(dirname "$(dirname "$(realpath "$0")")")" || exit 1
 
-exec "dev/run-in-venv" run python -m mypy "${ARGS[@]}"
-
+exec "dev/run-in-venv" python -m mypy "${ARGS[@]}"
