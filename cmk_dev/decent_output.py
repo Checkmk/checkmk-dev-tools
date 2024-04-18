@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
 
-"""Run a command and complain only after a while
+"""Run a command and print output only after a given amount of time in seconds
+
+E.g. `decent-output 2 docker build .`
 """
+
+# Perhaps we can remove unneeded non-error output later this way:
+#  How to save/restore terminal output
+#  https://unix.stackexchange.com/questions/243237/how-to-save-restore-terminal-output
 
 import signal
 import sys
@@ -9,10 +15,11 @@ from asyncio import Queue, StreamReader
 from asyncio import TimeoutError as AsyncTimeoutError
 from asyncio import create_subprocess_exec, gather, run, wait_for
 from asyncio.subprocess import PIPE, Process
+from collections.abc import Sequence
 from contextlib import suppress
-from typing import Optional, Sequence, TextIO
+from typing import TextIO
 
-LineQueue = Queue[Optional[tuple[TextIO, bytes]]]
+LineQueue = Queue[None | tuple[TextIO, bytes]]
 
 
 async def print_after(
@@ -49,8 +56,7 @@ async def run_quiet_and_verbose(timeout: float, cmd: Sequence[str]) -> None:
 
     process = await create_subprocess_exec(*cmd, stdout=PIPE, stderr=PIPE)
 
-    assert process.stdout
-    assert process.stderr
+    assert process.stdout and process.stderr
 
     signal.signal(signal.SIGINT, lambda _sig, _frame: 0)
 

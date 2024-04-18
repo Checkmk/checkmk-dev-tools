@@ -12,7 +12,7 @@ exclude = ["cmk_dev/out"]
 
 [tool.poetry.scripts]
 cmk-dev = 'cmk_dev.cli:main'
-active-listen = 'cmk_dev.listen_std:main'
+decent-output = 'cmk_dev.decent_output:main'
 ci-artifacts = 'cmk_dev.ci_artifacts:main'
 procmon = 'cmk_dev.procmon:main'
 cpumon = 'cmk_dev.cpumon:main'

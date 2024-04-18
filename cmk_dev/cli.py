@@ -94,9 +94,9 @@ def parse_args(argv: Union[Sequence[str], None] = None) -> Args:
         help="Shows content of pyc files",
     )
 
-    parser_alisten = subparsers.add_parser("active-listen")
-    parser_alisten.set_defaults(
-        func=fn_alisten,
+    parser_decent_output = subparsers.add_parser("decent-output")
+    parser_decent_output.set_defaults(
+        func=fn_decent_output,
         help="Shows output of provided command only if needed",
     )
 
@@ -229,8 +229,8 @@ def fn_npicked(_args: Args) -> None:
     print("Noch nix")
 
 
-def fn_alisten(_args: Args) -> None:
-    """Entry function for active-listen"""
+def fn_decent_output(_args: Args) -> None:
+    """Entry function for decent-output"""
     print("Noch nix")
 
 
