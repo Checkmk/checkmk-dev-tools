@@ -15,11 +15,11 @@ from configparser import ConfigParser
 from pathlib import Path
 from typing import Any, Literal, Union, cast
 
-from jenkins import Jenkins
 from pydantic import BaseModel, Json, model_validator
 from trickkiste.misc import compact_dict, date_str, dur_str, split_params
 
 from cmk_dev.utils import Fatal
+from jenkins import Jenkins
 
 GenMapVal = Union[None, bool, str, float, int, "GenMapArray", "GenMap"]
 GenMapArray = Sequence[GenMapVal]
@@ -280,7 +280,16 @@ class AugmentedJenkinsClient:
             password=password,
             timeout=timeout if timeout is not None else 20,
         )
+
+        # First API call gives us
+        #   ERROR    │ requests_kerberos.kerberos_ │ handle_other(): Mutual authentication \
+        #   unavailable on 403 response
+        # no clue why. So we deactivate this level temporarily until we know better
+        level = logging.getLogger("requests_kerberos.kerberos_").level
+        logging.getLogger("requests_kerberos.kerberos_").setLevel(logging.FATAL)
         whoami = self.client.get_whoami()
+        logging.getLogger("requests_kerberos.kerberos_").setLevel(level)
+
         if not whoami["id"] == username:
             log().warning("client.get_whoami() does not match jenkins_config['user']")
 
