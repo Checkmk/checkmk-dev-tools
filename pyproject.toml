@@ -83,10 +83,7 @@ check_untyped_defs = "True"
 warn_return_any = "True"
 warn_unused_ignores = "True"
 show_error_codes = "True"
-exclude = [
-    '\.venv',
-    '\.container_home_dir',
-]
+exclude = []
 mypy_path="typeshed"
 
 [tool.pylint]
