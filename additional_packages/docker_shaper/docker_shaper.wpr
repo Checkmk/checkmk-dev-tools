@@ -1,5 +1,5 @@
 #!wing
-#!version=9.0
+#!version=10.0
 ##################################################################
 # Wing project file                                              #
 ##################################################################
@@ -14,4 +14,3 @@ proj.file-type = 'shared'
 proj.launch-config = {loc('docker_shaper_dev'): ('project',
         ('--log-level=debug serve',
          ''))}
-proj.main-file = loc('docker_shaper_dev')

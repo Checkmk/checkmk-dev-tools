@@ -36,6 +36,7 @@ from textual import work
 from textual.app import ComposeResult
 from textual.widgets import Tree
 from trickkiste.base_tui_app import TuiBaseApp
+from trickkiste.misc import date_str, dur_str
 
 from docker_shaper import docker_state, dynamic, utils
 from docker_shaper.dynamic import Container, ImageIdent, Network, Volume, short_id
@@ -181,8 +182,8 @@ class DockerMon(TuiBaseApp):
         async for mtype, mtext, mobj in self.docker_state.wait_for_change():
             self.docker_stats_tree.root.set_label(
                 f"{utils.get_hostname()}"
-                f" / horizon={utils.date_str(self.docker_state.event_horizon)}"
-                f" ({utils.dur_str(int(time.time()) - self.docker_state.event_horizon)})"
+                f" / horizon={date_str(self.docker_state.event_horizon)}"
+                f" ({dur_str(int(time.time()) - self.docker_state.event_horizon)})"
             )
 
             if mtype == "exception":

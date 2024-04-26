@@ -31,13 +31,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, ClassVar, Literal, Type, TypeAlias, cast
 
+import aiohttp
 from aiodocker import Docker, DockerError
 from aiodocker.containers import DockerContainer
 from aiodocker.networks import DockerNetwork
 from aiodocker.volumes import DockerVolume
 from pydantic import BaseModel, ConfigDict, Json, model_validator
-
-from docker_shaper.utils import date_from
+from trickkiste.misc import date_from
 
 MessageType: TypeAlias = Literal[
     "exception",
@@ -435,6 +435,7 @@ class Image:
     inspect: ImageInspect
     history: Sequence[ImageHistoryElement]
     children: set[str] = field(default_factory=set)
+    # containers: set[str] = field(default_factory=set)
 
     def __str__(self) -> str:
         return f"{self.short_id} / {list(self.tags)}"
@@ -614,7 +615,19 @@ class DockerState:
     async def run(self) -> None:
         """Starts and awaits monitoring background tasks"""
         try:
-            async with Docker() as self.docker_client:
+
+            def docker_connection(limit: int = 1000) -> Docker:
+                """Creates a Docker connection with a customized Connector in order to
+                increase connection limit"""
+                for sockpath in [Path("/run/docker.sock"), Path("/var/run/docker.sock")]:
+                    if sockpath.is_socket():
+                        return Docker(
+                            "unix://localhost",
+                            aiohttp.UnixConnector(sockpath.as_posix(), limit=limit),
+                        )
+                raise RuntimeError("No path to docker.sock found")
+
+            async with docker_connection() as self.docker_client:
                 await asyncio.gather(
                     # self.__disconnect(),
                     self.monitor_events(),

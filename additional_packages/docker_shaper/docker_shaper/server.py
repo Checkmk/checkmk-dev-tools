@@ -1,249 +1,262 @@
 #!/usr/bin/env python3
 
-"""Tailors Quart based web interface and DockerState instance"""
+"""Runs the DockerShaper TUI in an auto-reloading and asynchronous way
 
-# pylint: disable=too-many-locals
+Connect to a given build node using the following command:
+
+  ssh -t root@build-fra-005 "su - jenkins -c 'screen -r docker-shaper'"
+"""
+# pylint: disable=too-many-instance-attributes
+# _pylint: disable=fixme
+
+# TODO:
+# * [ ] fix docker-shaper events and updates
+# * [ ] consolidate image pattern with nexus script
+# * [ ] create Nexus Rules
+
+# - [-] async cleanup (return from button press)
+# - [-] turn cleanup/crawler buttons red to indicate progress
+# - [ ] show images/containers/disk space
+# - [ ] show width/TERM / encoding
+# - [ ] Button: run crawler
+# - [ ] fix container tracing
+# - [ ] tag rules to config.cfg
+# - [ ] builder prune rules to config.cfg
+# - [ ] restart gracefully after docker.socket restart
 
 import asyncio
-import importlib
 import logging
+import logging.handlers
 import sys
-from contextlib import suppress
+from collections.abc import MutableMapping
 from pathlib import Path
 
 from apparat import fs_changes
-from quart import Quart, Response, redirect
+from textual import work
+from textual.app import ComposeResult
+from textual.binding import Binding
+from textual.containers import Grid, Vertical
+from textual.widgets import Button, Header, Label, Tree
+from trickkiste.base_tui_app import TuiBaseApp
 
-from docker_shaper import dynamic, utils
+from docker_shaper import dynamic
+from docker_shaper.utils import get_hostname
 
 CONFIG_FILE = dynamic.BASE_DIR / "config.py"
 
+__version__ = "2.0.0"  # It MUST match the version in pyproject.toml file
+
 
 def log() -> logging.Logger:
-    """Logger for this module"""
+    """Returns the logger instance to use here"""
     return logging.getLogger("docker-shaper")
 
 
-async def schedule_print_container_stats(global_state: dynamic.GlobalState) -> None:
-    """Async infinitve loop wrapper for print_container_stats"""
-    while True:
+class DockerShaper(TuiBaseApp):
+    """Tree view for Jenkins upstream vs. JJB generated jobs"""
+
+    CSS = """
+        Header {text-style: bold;}
+        #dashboard {
+            grid-size: 2;
+            padding: 1;
+            grid-rows: auto;
+            grid-gutter:1;
+            height: auto;
+        }
+        Button  {width: 40;}
+        Tree {padding: 1;}
+        Tree > .tree--guides {
+            color: $success-darken-3;
+        }
+        Tree > .tree--guides-selected {
+            text-style: none;
+            color: $success-darken-1;
+        }
+        #button_grid {
+            grid-size: 3;
+            height: auto;
+        }
+    """
+
+    BINDINGS = [
+        # We don't want the user to accidentally quit DockerShaper by pressing CTRL-C instead of
+        # detatching a screen or tmux session. So we inform them to press CTRL-Q instead
+        Binding("ctrl+q", "quit"),
+        Binding("ctrl+c", "inform_ctrlc_deactivated"),
+    ]
+
+    def __init__(self) -> None:
+        super().__init__(logger_show_funcname=False)
+
+        self.docker_stats_tree: Tree[None] = Tree("Docker stats")
+        self.containers_node = self.docker_stats_tree.root.add("Containers", expand=True)
+        self.images_node = self.docker_stats_tree.root.add("Images", expand=False)
+        self.references_node = self.docker_stats_tree.root.add("Image-references", expand=False)
+        self.networks_node = self.docker_stats_tree.root.add("Networks", expand=False)
+        self.volumes_node = self.docker_stats_tree.root.add("Volumes", expand=False)
+        self.patterns_node = self.docker_stats_tree.root.add("Image-pattern", expand=False)
+
+        self.removal_patterns: MutableMapping[str, int] = {}
+        self.pattern_usage_count: MutableMapping[str, int] = {}
+        self.global_state = dynamic.GlobalState()
+
         try:
-            await asyncio.ensure_future(dynamic.print_container_stats(global_state))
-            await asyncio.sleep(global_state.intervals.get("container_stats", 1))
-        except Exception:  # pylint: disable=broad-except
-            dynamic.report(global_state)
-            await asyncio.sleep(5)
+            mod_config = dynamic.load_config(self.global_state, CONFIG_FILE)
+            self.removal_patterns = mod_config.removal_rules(111)
+        except FileNotFoundError:
+            log().warning("no config file found at %s", CONFIG_FILE)
 
+        self.lbl_event_horizon = Label("event horizon")
+        self.lbl_runtime = Label("runtime")
+        self.lbl_switches = Label("switches")
+        self.lbl_expiration = Label("expiration ages")
+        self.lbl_stats1 = Label()
+        self.lbl_stats2 = Label()
+        self.lbl_clean_interval = Label("cleanup interval")
+        self.btn_clean = Button("clean", id="clean")
 
-async def schedule_print_state(global_state: dynamic.GlobalState):
-    """Async infinitve loop wrapper for dump_global_state"""
-    while True:
+        self.title = f"DockerShaper on {get_hostname()}"
+
+    async def initialize(self) -> None:
+        """Executed as soon as UI is ready. Called by parent().on_mount()"""
+        self.set_log_levels("ALL_DEBUG")
+
+        self.update_dashboard()
+        self.run_docker_stats()
+        self.maintain_docker_stats_tree()
+        self.watch_fs_changes()
+        self.schedule_cleanup()
+        dynamic.report(self.global_state, "info", "docker-shaper started")
+
+    def write_message(self, text: str) -> None:
+        """Write a message in log window unconditionally"""
+        self._richlog.write(text)
+
+    def compose(self) -> ComposeResult:
+        """Set up the UI"""
+        config_file_str = CONFIG_FILE.as_posix().replace(Path.home().as_posix(), "~")
+        yield Header(show_clock=True, id="header")
+        with Vertical():
+            with Grid(id="dashboard"):
+                yield self.btn_clean
+                yield Label(
+                    "[bright_black]Cleanup is done automatically based on the rules below."
+                    "\nOnly use when you know what you're doing[/]"
+                )
+                yield self.lbl_event_horizon
+                yield self.lbl_runtime
+                yield Label(f"Config file: [bold cyan]{config_file_str}[/]")
+                yield Label(
+                    "[bright_black]Edit this file to configure DockerShaper. Changes "
+                    "\nwill be applied automatically.[/]"
+                )
+                yield self.lbl_switches
+                yield self.lbl_expiration
+                yield self.lbl_stats1
+                yield self.lbl_stats2
+            yield self.docker_stats_tree
+            with Grid(id="button_grid"):
+                yield Button(
+                    f"rotate log level ({logging.getLevelName(log().level)})", id="rotate_log_level"
+                )
+                yield Button("dump trace", id="dump_trace")
+                yield Button("quit (don't!)", id="quit")
+
+        yield from super().compose()
+
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
+        """Generic button press handler"""
         try:
-            await asyncio.ensure_future(dynamic.dump_global_state(global_state))
-            await asyncio.sleep(global_state.intervals.get("state", 1))
+            await dynamic.on_button_pressed(self, event)
         except Exception:  # pylint: disable=broad-except
-            dynamic.report(global_state)
-            await asyncio.sleep(5)
+            dynamic.report(self.global_state)
 
+    async def action_inform_ctrlc_deactivated(self) -> None:
+        """See BINDINGS"""
+        log().error("CTRL-C is deactivated to avoid unintentional shutdown. Press CTRL-Q instead.")
 
-async def schedule_cleanup(global_state: dynamic.GlobalState):
-    """Async infinitve loop wrapper for cleanup"""
-    while True:
+    def update_node_labels(self) -> None:
+        """Fills some labels with useful information"""
         try:
-            while True:
-                if (
-                    interval := global_state.intervals.get("cleanup", 3600)
-                ) and global_state.cleanup_fuse > interval:
-                    global_state.cleanup_fuse = 0
-                    break
-                if (interval - global_state.cleanup_fuse) % 60 == 0:
-                    log().debug(
-                        "cleanup: %s seconds to go..", (interval - global_state.cleanup_fuse)
-                    )
-                await asyncio.sleep(1)
-                global_state.cleanup_fuse += 1
-            await asyncio.ensure_future(dynamic.cleanup(global_state))
+            dynamic.update_node_labels(self)
         except Exception:  # pylint: disable=broad-except
-            dynamic.report(global_state)
-            await asyncio.sleep(5)
+            dynamic.report(self.global_state)
 
-
-def load_config(path: Path, global_state: dynamic.GlobalState) -> None:
-    """Load the config module and invoke `reconfigure`"""
-    module = utils.load_module(path)
-    try:
-        module.modify(global_state)
-        dynamic.reconfigure(global_state)
-    except AttributeError:
-        log().warning("File %s does not provide a `modify(global_state)` function")
-
-
-async def watch_fs_changes(global_state: dynamic.GlobalState):
-    """Watch for changes on imported files and reload them on demand"""
-    CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-
-    async for changes in (
-        relevant_changes
-        async for chunk in fs_changes(
-            Path(dynamic.__file__).parent, CONFIG_FILE.parent, min_interval=4, postpone=False
-        )
-        if (changed_files := set(chunk))
-        for loaded_modules in (
-            {
-                Path(mod.__file__): mod
-                for mod in sys.modules.values()
-                if hasattr(mod, "__file__") and mod.__file__
-                if not any(infix in mod.__file__ for infix in (".pyenv", ".venv", "wingpro"))
-            },
-        )
-        if (
-            relevant_changes := [
-                (path, loaded_modules.get(path))
-                for path in changed_files
-                if path == CONFIG_FILE or path in loaded_modules
-            ]
-        )
-    ):
-        for changed_file, module in changes:
-            if "flask_table" in changed_file.as_posix():
-                continue
+    @work(exit_on_error=True)
+    async def update_dashboard(self) -> None:
+        """Continuously write some internal stuff to log"""
+        while True:
             try:
-                if changed_file == CONFIG_FILE:
-                    log().info("config file %s changed - apply changes", changed_file)
-                    load_config(CONFIG_FILE, global_state)
-                else:
-                    log().info("file %s changed - reload module", changed_file)
-                    assert module
-                    importlib.reload(module)
+                await dynamic.update_dashboard(self)
             except Exception:  # pylint: disable=broad-except
-                dynamic.report(global_state)
+                dynamic.report(self.global_state)
                 await asyncio.sleep(5)
-        try:
-            dynamic.setup_introspection()
-        except Exception:  # pylint: disable=broad-except
-            dynamic.report(global_state)
-            await asyncio.sleep(5)
+            await asyncio.sleep(0)
 
+    @work(exit_on_error=True)
+    async def run_docker_stats(self) -> None:
+        """Runs the docker-stats 'daemon' in background"""
+        await self.global_state.run()
 
-def serve() -> None:
-    """Instantiate DockerState and run the quart server"""
-    dynamic.setup_introspection()
+    @work(exit_on_error=True)
+    async def maintain_docker_stats_tree(self) -> None:
+        """Continuously updates Docker elements tree"""
+        while True:
+            try:
+                await dynamic.maintain_docker_stats_tree(self)
+            except Exception:  # pylint: disable=broad-except
+                dynamic.report(self.global_state)
+                await asyncio.sleep(5)
+            await asyncio.sleep(0)
 
-    app = Quart(__name__)
+    @work(exit_on_error=True)
+    async def schedule_cleanup(self) -> None:
+        """Async infinitve loop wrapper for cleanup"""
+        while True:
+            try:
+                await dynamic.schedule_cleanup(self)
+            except Exception:  # pylint: disable=broad-except
+                dynamic.report(self.global_state)
+                await asyncio.sleep(5)
 
-    async def generic_response(endpoint: str) -> Response:
-        global_state = app.config["GLOBAL_STATE"]
-        if not hasattr(dynamic, f"response_{endpoint}"):
-            return f"Not known: {endpoint}"
-        try:
-            return await getattr(dynamic, f"response_{endpoint}")(global_state)
-        except Exception:  # pylint: disable=broad-except
-            dynamic.report(global_state, "exception", f"exception in response_{endpoint}:")
-            raise
+    @work(exit_on_error=True)
+    async def watch_fs_changes(self) -> None:
+        """Watch for changes on imported files and reload them on demand"""
+        CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
 
-    @app.route("/<generic>", methods=["GET", "POST"])
-    async def route_generic(generic) -> Response:
-        if generic in {"favicon.ico", "favicon2.so"}:
-            return ""
-        return await generic_response(generic)
-
-    @app.route("/cleanup", methods=["POST"])
-    async def route_cleanup():
-        return await generic_response("cleanup")
-
-    @app.route("/rules")
-    async def route_rules():
-        return await generic_response("rules")
-
-    @app.route("/messages")
-    async def route_messages():
-        return await generic_response("messages")
-
-    @app.route("/delete_network")
-    async def route_delete_network():
-        return await generic_response("delete_network")
-
-    @app.route("/inspect_network")
-    async def route_inspect_network():
-        return await generic_response("inspect_network")
-
-    @app.route("/networks")
-    async def route_networks():
-        return await generic_response("networks")
-
-    @app.route("/delete_volume")
-    async def route_delete_volume():
-        return await generic_response("delete_volume")
-
-    @app.route("/inspect_volume")
-    async def route_inspect_volume():
-        return await generic_response("inspect_volume")
-
-    @app.route("/volumes")
-    async def route_volumes():
-        return await generic_response("volumes")
-
-    @app.route("/delete_container")
-    async def route_delete_container():
-        return await generic_response("delete_container")
-
-    @app.route("/inspect_container")
-    async def route_inspect_container():
-        return await generic_response("inspect_container")
-
-    @app.route("/containers")
-    async def route_containers():
-        return await generic_response("containers")
-
-    @app.route("/remove_image_ident")
-    async def route_remove_image_ident():
-        return await generic_response("remove_image_ident")
-
-    @app.route("/inspect_image")
-    async def route_inspect_image():
-        return await generic_response("inspect_image")
-
-    @app.route("/images")
-    async def route_images():
-        return await generic_response("images")
-
-    @app.route("/dashboard")
-    async def route_dashboard():
-        return await generic_response("dashboard")
-
-    @app.route("/")
-    async def root() -> Response:
-        return redirect("dashboard")
-
-    @app.websocket("/control")
-    async def control() -> None:
-        """Provides websocket for updates on changes
-        see https://pgjones.gitlab.io/quart/how_to_guides/websockets.html
-        """
-        await dynamic.response_control_ws(app.config["GLOBAL_STATE"])
-
-    @app.before_serving
-    async def start_background_tasks() -> None:
-        global_state = app.config["GLOBAL_STATE"]
-
-        asyncio.ensure_future(global_state.docker_state.run())
-        asyncio.ensure_future(dynamic.run_listen_messages(global_state))
-        asyncio.ensure_future(watch_fs_changes(global_state))
-        # asyncio.ensure_future(print_container_stats(global_state))
-        asyncio.ensure_future(schedule_print_state(global_state))
-        asyncio.ensure_future(schedule_cleanup(global_state))
-
-        dynamic.report(global_state, "info", "docker-shaper started")
-
-    with dynamic.GlobalState() as global_state:
-        load_config(CONFIG_FILE, global_state)
-        app.config["TEMPLATES_AUTO_RELOAD"] = True
-        app.config["GLOBAL_STATE"] = global_state
-        with suppress(asyncio.CancelledError):
-            app.run(
-                host="0.0.0.0",
-                port=5432,
-                debug=False,
-                use_reloader=False,
-                loop=asyncio.get_event_loop(),
+        async for changes in (
+            relevant_changes
+            async for chunk in fs_changes(
+                Path(dynamic.__file__).parent, CONFIG_FILE.parent, min_interval=4, postpone=False
             )
+            if (changed_files := set(chunk))
+            for loaded_modules in (
+                {
+                    Path(mod.__file__): mod
+                    for mod in sys.modules.values()
+                    if hasattr(mod, "__file__") and mod.__file__
+                    if not any(infix in mod.__file__ for infix in (".pyenv", ".venv", "wingpro"))
+                },
+            )
+            if (
+                relevant_changes := [
+                    (path, loaded_modules.get(path))
+                    for path in changed_files
+                    if path == CONFIG_FILE or path in loaded_modules
+                ]
+            )
+        ):
+            try:
+                await dynamic.on_changed_file(self.global_state, CONFIG_FILE, changes)
+            except Exception:  # pylint: disable=broad-except
+                dynamic.report(self.global_state)
+
+
+def main() -> None:
+    """Main entry point"""
+    DockerShaper().execute()
+
+
+if __name__ == "__main__":
+    main()

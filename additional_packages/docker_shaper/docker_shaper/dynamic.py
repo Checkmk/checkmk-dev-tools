@@ -3,17 +3,16 @@
 """Functionality that might change during runtime
 """
 
-# pylint: disable=invalid-name  # names come from aiodocker, not my fault
 # pylint: disable=too-many-instance-attributes
-# pylint: disable=too-many-lines
-# pylint: disable=too-few-public-methods
 # pylint: disable=too-many-branches
-# pylint: disable=too-many-return-statements
+# pylint: disable=too-many-lines
+# pylint: disable=too-many-locals
+# pylint: disable=too-many-statements
 # pylint: disable=missing-function-docstring
-# pylint: disable=missing-class-docstring
 # pylint: disable=fixme
 
 import asyncio
+import importlib
 import json
 import logging
 import os
@@ -21,19 +20,23 @@ import re
 import sys
 import time
 import traceback
-from collections import Counter
 from collections.abc import Iterable, Mapping, MutableMapping, MutableSequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import cast
+from types import ModuleType
+from typing import Protocol, cast
 
+import psutil
 from aiodocker import Docker, DockerError
 from aiodocker.volumes import DockerVolume
-from dateutil import tz
-from quart import redirect, render_template, request, url_for, websocket
+from rich.markup import escape as markup_escape
+from textual.widgets import Button, Label, Tree
+from textual.widgets.tree import TreeNode
+from trickkiste.misc import age_str, date_str, dur_str, process_output
 
-from docker_shaper.docker_state import (
+from . import __version__, utils
+from .docker_state import (
     Container,
     DockerState,
     Image,
@@ -44,15 +47,6 @@ from docker_shaper.docker_state import (
     is_uid,
     short_id,
     unique_ident,
-)
-from docker_shaper.flask_table_patched import Col, Table
-from docker_shaper.utils import (
-    age_str,
-    date_str,
-    dur_str,
-    get_hostname,
-    impatient,
-    setup_introspection_on_signal,
 )
 
 BASE_DIR = Path("~/.docker_shaper").expanduser()
@@ -69,7 +63,6 @@ class GlobalState:
 
     intervals: MutableMapping[str, float]
     tag_rules: MutableMapping[str, int]
-    extra_links: MutableMapping[str, int]
     messages: MutableSequence[tuple[int, str, str, None | object]]
     switches: MutableMapping[str, bool]
     hostname: str
@@ -80,30 +73,25 @@ class GlobalState:
 
     def __init__(self) -> None:
         self.docker_state = DockerState()
-        self.docker_state.import_references(BASE_DIR / "event_horizon.json")
         self.intervals = {
-            "state": 2,
-            "image_stats": 2,
-            "container_stats": 2,
             "cleanup": 3600,
         }
         self.cleanup_fuse = 0
 
         self.tag_rules = {}
-        self.counter = 0
-        self.extra_links = {}
         self.switches = {}
         self.messages = []
-        self.hostname = get_hostname()
+        self.hostname = utils.get_hostname()
         self.expiration_ages = {}
         self.update_mqueues = set()
         self.additional_values = {}
 
-    def __enter__(self) -> "GlobalState":
-        return self
-
-    def __exit__(self, *args: object) -> None:
-        self.docker_state.export_references(BASE_DIR / "event_horizon.json")
+    async def run(self) -> None:
+        self.docker_state.import_references(BASE_DIR / "event_horizon.json")
+        try:
+            await self.docker_state.run()
+        finally:
+            self.docker_state.export_references(BASE_DIR / "event_horizon.json")
 
     def new_update_queue(self) -> asyncio.Queue[str]:
         """Creates and returns a new message queue"""
@@ -149,16 +137,33 @@ class GlobalState:
         return self.docker_state.docker_client
 
 
-async def run_listen_messages(global_state: GlobalState) -> None:
-    """Print messages"""
-    (BASE_DIR / "container-logs").mkdir(parents=True, exist_ok=True)
-    while True:
-        try:
-            async for mtype, mtext, mobj in global_state.docker_state.wait_for_change():
-                handle_docker_state_message(global_state, mtype, mtext, mobj)
-        except Exception:  # pylint: disable=broad-except
-            report(global_state)
-            await asyncio.sleep(5)
+class DockerShaperUI(Protocol):
+    """Used to avoid importing DockerShaper TUI class"""
+
+    global_state: GlobalState
+
+    pattern_usage_count: MutableMapping[str, int]
+    removal_patterns: MutableMapping[str, int]
+
+    docker_stats_tree: Tree
+
+    containers_node: TreeNode
+    images_node: TreeNode
+    references_node: TreeNode
+    networks_node: TreeNode
+    volumes_node: TreeNode
+    patterns_node: TreeNode
+
+    lbl_event_horizon: Label
+    lbl_runtime: Label
+    lbl_switches: Label
+    lbl_expiration: Label
+    btn_clean: Button
+
+    def exit(self): ...
+    def update_status_bar(self, text: str): ...
+    def update_node_labels(self) -> None: ...
+    def write_message(self, text: str) -> None: ...
 
 
 def log_file_name(cnt: Container) -> Path:
@@ -297,7 +302,6 @@ def expiration_age_from_image_name(
     return default, f"multiple_rules=>tag_unknown ({[rule[0] for  rule in  matching_rules]})"
 
 
-@impatient
 def check_expiration(
     global_state: GlobalState, ident: str, now: int, extra_date: int = 0
 ) -> tuple[bool, None | int, int, str]:
@@ -353,518 +357,6 @@ def label_filter(label_values):
         )
         for w in l.split()
         if not (w.startswith("sha256") or len(w) == 64)
-    )
-
-
-async def dump_global_state(global_state: GlobalState):
-    # TODO
-    # dep_tree, max_depth = image_dependencies(global_state)
-    # def handle_branch(branch, depth=0):
-    #     for image_id, children in list(branch.items()):
-    #         print(
-    #             f"{'.' * (depth + 1)}"
-    #             f" {short_id(image_id)}"
-    #             f" {'.' * (max_depth - depth + 1)}"
-    #             f" {len(children)}"
-    #             f" {global_state.images[image_id].tags}"
-    #         )
-    #         handle_branch(children, depth + 1)
-    # handle_branch(dep_tree)
-
-    global_state.counter += 1
-    all_tasks = asyncio.all_tasks()
-    coro_name_count = Counter(
-        name
-        for t in all_tasks
-        if (coro := t.get_coro())
-        if (name := getattr(coro, "__name__"))
-        # ignore
-        not in {
-            "handle_lifespan",
-            "handle_websocket",
-            "handle_messages",
-            "get",
-            "wait",
-            "write_bytes",
-            "raise_shutdown",
-            "_connect_pipes",
-            "_server_callback",
-            "_handle",
-            "_run_idle",
-            # starts/stops randomly
-            "watch_container",
-            "fuse_fn",
-            "add_next",
-            "sleep",
-            "iterate",
-        }
-    )
-
-    expectd_coro_names = {
-        "run",
-        "serve",
-        "dump_global_state",
-        "watch_fs_changes",
-        "schedule_cleanup",
-        "schedule_print_state",
-        "run_crawl_images",
-        "run_crawl_containers",
-        "run_crawl_networks",
-        "run_listen_messages",
-        "run_crawl_volumes",
-        "monitor_events",
-    }
-    missing_tasks = expectd_coro_names - coro_name_count.keys()
-
-    if missing_tasks:
-        report(
-            global_state,
-            "error",
-            f"mandatory tasks are not running anymore: {missing_tasks} => terminate!",
-        )
-        await asyncio.sleep(1)  # wait for message queues to be eaten up
-        raise SystemExit(1)
-
-    print()
-    print(f"│=====[ http://{global_state.hostname}:5432/ ]===================================")
-    print(
-        f"│ started / frame:   {date_str(global_state.docker_state.started_at)}"
-        f" / {age_str(datetime.now(), global_state.docker_state.started_at)}"
-        f" / {global_state.counter}"
-    )
-    print(
-        f"│ event horizon:     {date_str(global_state.docker_state.event_horizon)}"
-        f" / {age_str(datetime.now(), global_state.docker_state.event_horizon)}"
-    )
-    print(f"| cycle log level:   `kill -USR1 {os.getpid()}`")
-    print(f"| write trace:       `kill -USR2 {os.getpid()}`")
-    print(
-        f"│ intervals:         "
-        f"{', '.join('='.join(map(str, i)) for i in global_state.intervals.items())}"
-    )
-    print(f"│ containers:        {len(global_state.containers)}")
-    print(f"│ images:            {len(global_state.images)}")
-    # print(f"│ image tree depth: {max_depth}")
-    print(f"│ volumes:           {len(global_state.volumes)}")
-    print(f"│ networks:          {len(global_state.networks)}")
-    print(f"│ references:        {len(global_state.last_referenced)}")
-    print(f"│ tag_rules:         {len(global_state.tag_rules)}")
-    print(f"│ connections:       {len(global_state.update_mqueues)}")
-    print(
-        f"│ tasks:             {len(all_tasks)}, missing / unknown:"
-        f" {missing_tasks or 'none'} / "
-        f" {(coro_name_count.keys() - expectd_coro_names) or 'none'}"
-    )
-    print(
-        f"│ initially crawled:"
-        f" containers: {global_state.docker_state.containers_crawled}"
-        f" images: {global_state.docker_state.images_crawled}"
-        f" volumes: {global_state.docker_state.volumes_crawled}"
-        f" networks: {global_state.docker_state.networks_crawled}"
-    )
-    print("│===================================================================")
-    print()
-
-
-class BaseTable(Table):
-    allow_sort = True
-    classes = ["table", "table-striped"]
-
-    def __init__(self, endpoint, items):
-        super().__init__(items)
-        self.endpoint = endpoint
-
-    def get_tr_attrs(self, item):
-        return {"class": item.get("class")}
-
-    def sort_url(self, col_id, reverse=False):
-        raise NotImplementedError()
-
-
-class PlainCol(Col):
-    def td_format(self, content):
-        return f"<tt><b>{content}</b></tt>"
-
-
-class ImageTable(BaseTable):
-    short_id = PlainCol("short_id")
-    tags = PlainCol("tags")
-    children_count = PlainCol("#children")
-    created_at = PlainCol("created_at")
-    age = PlainCol("age")
-
-    def sort_url(self, col_id, reverse=False):
-        return url_for(
-            self.endpoint,
-            sort_key_images=col_id,
-            sort_direction_images="desc" if reverse else "asc",
-        )
-
-    @staticmethod
-    def html_from(endpoint, global_state, sort, reverse):
-        now = datetime.now(tz=tz.tzutc())
-
-        def dict_from(image: Image):
-            now_timestamp = now.timestamp()
-            created_timestamp = image.created_at.timestamp()
-
-            def coloured_ident(ident: str) -> str:
-                is_expired, last_referenced, expiration_age, _reason = check_expiration(
-                    global_state, ident, now_timestamp, created_timestamp
-                )
-                return (
-                    f"<div class='text-{'danger' if is_expired else 'success'}'>"
-                    f"{ident} ({age_str(now, last_referenced)}/{age_str(expiration_age, 0)}) "
-                    f"<a href=remove_image_ident?ident={ident}>del</a>"
-                    f"</div>"
-                )
-
-            return {
-                "short_id": coloured_ident(image.short_id),
-                "tags": "".join(map(coloured_ident, image.tags)),
-                "created_at": date_str(image.created_at),
-                "children_count": len(image.children),
-                "age": age_str(now, image.created_at, fixed=True),
-                # "last_referenced": last_referenced_str(image["short_id"]),
-                # "class": ("text-danger" if
-                # would_cleanup_image(image, now, global_state) else "text-success"),
-            }
-
-        return ImageTable(
-            endpoint,
-            items=sorted(
-                map(dict_from, global_state.images.values()),
-                key=lambda e: e[sort],
-                reverse=reverse,
-            ),
-        ).__html__()
-
-
-class ContainerTable(BaseTable):
-    short_id = PlainCol("short_id")
-    name = PlainCol("name")
-    image = PlainCol("image")
-
-    status = PlainCol("status")
-    created_at = PlainCol("created_at")
-    started_at = PlainCol("started_at")
-    uptime = PlainCol("uptime/age")
-    pid = PlainCol("pid")
-    mem_usage = PlainCol("mem_usage")
-    cpu = PlainCol("cpu")
-    cmd = PlainCol("cmd")
-
-    job = PlainCol("job")
-    hints = PlainCol("hints")
-    # link = LinkCol('Link', 'route_containers', url_kwargs=dict(id='id'), allow_sort=False)
-
-    def sort_url(self, col_id, reverse=False):
-        return url_for(
-            self.endpoint,
-            sort_key_containers=col_id,
-            sort_direction_containers="desc" if reverse else "asc",
-        )
-
-    @staticmethod
-    def html_from(endpoint, global_state, sort, reverse):
-        now = datetime.now(tz=tz.tzutc())
-
-        def coloured_ident(cnt):
-            cnt_expired = would_cleanup_container(global_state, cnt, now.timestamp())
-            return (
-                f"<div class='text-{'danger' if cnt_expired else 'success'}'>"
-                f"{cnt.short_id} "
-                f"<a href=delete_container?ident={cnt.short_id}>del</a>"
-                f"</div>"
-            )
-
-        return ContainerTable(
-            endpoint,
-            items=sorted(
-                (
-                    {
-                        "short_id": coloured_ident(cnt),
-                        "name": cnt.name,
-                        "image": short_id(cnt.image) if is_uid(cnt.image) else cnt.image,
-                        "mem_usage": f"{(cnt.mem_usage() >> 20)}MiB",
-                        "cpu": f"{int(cnt.cpu_usage() * 1000) / 10}%",
-                        "cmd": "--" if not (cmd := cnt.cmd) else " ".join(cmd)[:100],
-                        "job": jobname_from(
-                            cnt.host_config["Binds"] or list(cnt.show.Config.Volumes or [])
-                        ),
-                        "created_at": date_str(cnt.created_at),
-                        "started_at": date_str(cnt.started_at),
-                        "uptime": age_str(
-                            now,
-                            cnt.started_at if cnt.started_at.year > 1000 else cnt.created_at,
-                            fixed=True,
-                        ),
-                        "status": cnt.status,
-                        "hints": label_filter(cnt.labels),
-                        "pid": cnt.pid,
-                        # https://getbootstrap.com/docs/4.0/utilities/colors/
-                    }
-                    for cnt in global_state.containers.values()
-                    if cnt.stats and cnt.last_stats
-                ),
-                key=lambda e: e[sort],
-                reverse=reverse,
-            ),
-        ).__html__()
-
-
-class VolumeTable(BaseTable):
-    name = PlainCol("name")
-    labels = PlainCol("labels")
-    created_at = PlainCol("created_at")
-    age = PlainCol("age")
-    mountpoint = PlainCol("mountpoint")
-
-    def sort_url(self, col_id, reverse=False):
-        return url_for(
-            self.endpoint,
-            sort_key_volumes=col_id,
-            sort_direction_volumes="desc" if reverse else "asc",
-        )
-
-    @staticmethod
-    def html_from(endpoint, global_state, sort, reverse):
-        now = datetime.now(tz=tz.tzutc())
-
-        def dict_from(volume: Volume):
-            now_timestamp = now.timestamp()
-            created_timestamp = volume.CreatedAt.timestamp()
-
-            def coloured_ident(ident: str, formatter=lambda s: s) -> str:
-                is_expired, last_referenced, expiration_age, _reason = check_expiration(
-                    global_state, ident, now_timestamp, created_timestamp
-                )
-                return (
-                    f"<div class='text-{'danger' if is_expired else 'success'}'>"
-                    f"{formatter(ident)}"
-                    f" ({age_str(now, last_referenced)}/{age_str(expiration_age, 0)})"
-                    f"<a href=delete_volume?ident={ident}>del</a></div>"
-                )
-
-            return {
-                "name": coloured_ident(volume.Name, formatter=lambda s: s[:12]),
-                "labels": "".join(map(coloured_ident, volume.Labels or [])),
-                "created_at": date_str(volume.CreatedAt),
-                "age": age_str(now, volume.CreatedAt),
-                "mountpoint": volume.Mountpoint,
-            }
-
-        return VolumeTable(
-            endpoint,
-            items=sorted(
-                map(dict_from, global_state.volumes.values()),
-                key=lambda e: e[sort],
-                reverse=reverse,
-            ),
-        ).__html__()
-
-
-def meta_info(global_state: GlobalState):
-    return {
-        "refresh_interval": global_state.intervals.get("site_refresh", 10),
-        "event_horizon": age_str(time.time(), global_state.docker_state.event_horizon),
-        "container_count": len(global_state.containers),
-        "image_count": len(global_state.images),
-        "volume_count": len(global_state.volumes),
-        "extra_links": global_state.extra_links,
-        "intervals": {key: dur_str(value) for key, value in global_state.intervals.items()},
-        "next_cleanup": dur_str(global_state.intervals["cleanup"] - global_state.cleanup_fuse),
-        "hostname": global_state.hostname,
-        "switches": global_state.switches,
-        "expiration_ages": {
-            key: dur_str(value) for key, value in global_state.expiration_ages.items()
-        },
-        "self_pid": os.getpid(),
-    }
-
-
-async def response_remove_image_ident(global_state: GlobalState):
-    try:
-        if not (ident := request.args.get("ident")):
-            raise RuntimeError("STRAGE: response_remove_image_ident called with empty `ident`")
-        await remove_image_ident(global_state, ident)
-    except Exception as exc:  # pylint: disable=broad-except
-        log().exception("Exception raised in remove_image_ident(%s)", request.args.get("ident"))
-        return f"Exception raised in remove_image_ident({request.args.get('ident')}): {exc}"
-    return redirect(request.referrer or url_for("route_dashboard"))
-
-
-async def response_delete_container(global_state: GlobalState):
-    try:
-        await delete_container(global_state, request.args.get("ident", ""))
-    except Exception as exc:  # pylint: disable=broad-except
-        log().exception("Exception raised in delete_container(%s)", request.args.get("ident"))
-        return f"Exception raised in delete_container({request.args.get('ident')}): {exc}"
-    return redirect(request.referrer or url_for("route_dashboard"))
-
-
-async def response_cleanup(global_state: GlobalState):
-    global_state.cleanup_fuse = int(global_state.intervals["cleanup"])
-    return redirect(request.referrer or url_for("route_dashboard"))
-
-
-async def response_rules(_global_state: GlobalState) -> str:
-    return "no rules yet"
-
-
-async def response_messages(_global_state: GlobalState) -> str:
-    return "no messages yet"
-
-
-async def response_volumes(global_state: GlobalState):
-    return await render_template(
-        "volumes.html",
-        meta=meta_info(global_state),
-        volumes_html=VolumeTable.html_from(
-            "route_volumes",
-            global_state,
-            sort=request.args.get("sort_key_volumes", "created_at"),
-            reverse=request.args.get("sort_direction_volumes", "desc") == "desc",
-        ),
-    )
-
-
-async def response_containers(global_state: GlobalState):
-    # https://github.com/plumdog/flask_table/blob/master/examples/sortable.py
-    return await render_template(
-        "containers.html",
-        meta=meta_info(global_state),
-        containers_html=ContainerTable.html_from(
-            "route_containers",
-            global_state,
-            sort=request.args.get("sort_key_containers", "cpu"),
-            reverse=request.args.get("sort_direction_containers", "desc") == "desc",
-        ),
-    )
-
-
-async def response_images(global_state: GlobalState):
-    # https://github.com/plumdog/flask_table/blob/master/examples/sortable.py
-    return await render_template(
-        "images.html",
-        meta=meta_info(global_state),
-        images_html=ImageTable.html_from(
-            "route_images",
-            global_state,
-            sort=request.args.get("sort_key_images", "created_at"),
-            reverse=request.args.get("sort_direction_images", "asc") == "desc",
-        ),
-    )
-
-
-async def response_dashboard(global_state: GlobalState):
-    return await render_template(
-        "dashboard.html",
-        meta=meta_info(global_state),
-        containers_html=ContainerTable.html_from(
-            "route_dashboard",
-            global_state,
-            sort=request.args.get("sort_key_containers", "cpu"),
-            reverse=request.args.get("sort_direction_containers", "desc") == "desc",
-        ),
-        images_html=ImageTable.html_from(
-            "route_dashboard",
-            global_state,
-            sort=request.args.get("sort_key_images", "created_at"),
-            reverse=request.args.get("sort_direction_images", "asc") == "desc",
-        ),
-        messages=[
-            (date_str(m[0]), m[1], m[2].replace("\n", "<br>|")) for m in global_state.messages
-        ],
-    )
-
-
-async def container_table_html(global_state: GlobalState):
-    return await response_containers(global_state)
-
-
-async def image_table_html(global_state: GlobalState):
-    return await response_images(global_state)
-
-
-async def dashboard(global_state: GlobalState):
-    return await response_dashboard(global_state)
-
-
-async def print_container_stats(global_state: GlobalState) -> None:
-    stats = [
-        {
-            "short_id": cnt.short_id,
-            "name": cnt.name,
-            "usage": cnt.mem_usage(),
-            "cmd": " ".join(cnt.cmd or []),
-            "job": (
-                jobname_from(
-                    cnt.host_config["Binds"] or list((cnt.show and cnt.show.Config.Volumes) or [])
-                )
-            ),
-            "cpu": cnt.cpu_usage(),
-            "created_at": cnt.created_at,
-            "started_at": cnt.started_at,
-            "status": cnt.status,
-            "hints": label_filter(cnt.labels),
-            "pid": cnt.pid,
-            "container": cnt.raw_container,
-        }
-        for cnt in global_state.containers.values()
-        if cnt.stats and cnt.last_stats
-    ]
-
-    os.system("clear")
-    print(f"=[ {global_state.hostname} ]======================================")
-    print(
-        f"{'ID':<12}  {'NAME':<25}"
-        f" {'PID':>9}"
-        f" {'CPU':>9}"
-        f" {'MEM':>9}"
-        f" {'UP':>9}"
-        f" {'STATE':>9}"
-        f" {'JOB':<60}"
-        f" {'HINTS'}"
-    )
-    now = datetime.now()
-    for s in sorted(stats, key=lambda e: e["pid"]):
-        tds = int((now - (s["started_at"] or s["created_at"])).total_seconds())
-        col_td = "\033[1m\033[91m" if tds // 3600 > 5 else ""
-        duration_str = f"{tds//86400:2d}d+{tds//3600%24:02d}:{tds//60%60:02d}"
-        col_mem = "\033[1m\033[91m" if s["usage"] >> 30 > 2 else ""
-        mem_str = f"{(s['usage']>>20)}MiB"
-        col_cpu = "\033[1m\033[91m" if s["cpu"] > 2 else ""
-        # container_is_critical = (
-        #     (s["started_at"] and tds // 3600 > 5) or s["status"]== "exited" or not s["started_at"]
-        # )
-        col_cpu = "\033[1m\033[91m" if s["cpu"] > 2 else ""
-        print(
-            f"{s['short_id']:<12}  {s['name']:<25}"
-            f" {s['pid']:>9}"
-            f" {col_cpu}{int(s['cpu'] * 100):>8}%\033[0m"
-            f" {col_mem}{mem_str:>9}\033[0m"
-            f" {col_td}{duration_str}\033[0m"
-            f" {s['status']:>9}"
-            f" {s['job']:<60}"
-            f" {s['hints']}"
-        )
-        # if (
-        #    (s["started_at"] and tds // 3600 > 5)
-        #    or s["status"] == "exited"
-        #    or not s["started_at"]
-        # ):
-        #    log(f"remove {s['short_id']}")
-        #    await s["container"].delete(force=True)
-    print(
-        f"{'TOTAL':<12}  {len(stats):<25}"
-        f" {'':>9}"
-        f" {int(sum(s['cpu'] for s in stats)*1000) / 10:>8}%\033[0m"
-        f" {int(sum(s['usage'] for s in stats) / (1<<30)*10) / 10:>6}GiB\033[0m"
-        f" {''}"
-        f" {'':>9}"
-        f" {'':<60}"
-        f" {''}"
     )
 
 
@@ -940,8 +432,6 @@ async def delete_container(global_state: GlobalState, ident: str | Container) ->
 
 
 async def cleanup(global_state: GlobalState) -> None:
-    log().info("Cleanup!..")
-
     report(global_state, "info", "start cleanup", None)
 
     try:
@@ -986,7 +476,11 @@ async def cleanup(global_state: GlobalState) -> None:
 
         # FOR NOW: only handle images without children
         no_remove_images = not global_state.switches.get("remove_images")
-        for image in (img for img in list(global_state.images.values()) if not img.children):
+        image: Image
+        for image in list(global_state.images.values()):
+            if image.children:
+                continue
+
             for ident, reason in expired_idents(global_state, image, now):
                 log().info("%sexpired: %s (%s)", "SKIP " if no_remove_images else "", ident, reason)
                 if no_remove_images:
@@ -1030,7 +524,7 @@ def report(
 ) -> None:
     """Report an incident - maybe good or bad"""
     if sys.exc_info()[1] and msg_type in {None, "exception"}:
-        log().exception(message)
+        log().exception(str(message) if message else "Exception:")
         traceback_str = traceback.format_exc().strip("\n")
         type_str, msg_str, extra_str = (
             msg_type or "exception",
@@ -1068,41 +562,323 @@ def reconfigure(global_state: GlobalState) -> None:
 
     # todo
     # global_state.inform("refresh")
-    import importlib  # pylint: disable=import-outside-toplevel
+    from . import utils as _utils  # pylint: disable=import-outside-toplevel
 
-    from docker_shaper import utils  # pylint: disable=import-outside-toplevel
-
-    importlib.reload(utils)
-    # utils.setup_logging()
+    importlib.reload(_utils)
 
     report(global_state, "info", "configuration reloaded")
 
 
-def setup_introspection():
-    setup_introspection_on_signal()
+async def on_button_pressed(ui: DockerShaperUI, event: Button.Pressed) -> None:
+    log().debug("Button %r pressed", event.button.id)
+    if event.button.id == "quit":
+        ui.exit()
+    elif event.button.id == "clean":
+        await asyncio.ensure_future(cleanup(ui.global_state))
+    elif event.button.id == "rotate_log_level":
+        utils.increase_loglevel()
+        event.button.label = f"rotate log level ({logging.getLevelName(log().level)})"
+        log().info("changed log level to %s", logging.getLevelName(log().level))
+    elif event.button.id == "dump_trace":
+        trace_log_file_path = BASE_DIR / "traceback.log"
+        ui.write_message("dump trace")
+        with trace_log_file_path.open("w", encoding="utf-8") as log_file:
+            utils.dump_stacktrace(lambda msg: log_file.write(f"{msg}\n"), ui.write_message)
+            ui.write_message(f"traceback also written to {trace_log_file_path}")
 
 
-async def response_control_ws(global_state) -> None:
-    """Provides a way to talk with a connected client"""
-    # Only allow clients we know
-    # user_id = websocket.cookies.get("session")
-    # log().debug(f"/control({user_id})")
-    # if not user_id:
-    # websocket.close()
+async def update_dashboard(ui: DockerShaperUI) -> None:
+    current_process = psutil.Process()
+    tasks = [
+        name for t in asyncio.all_tasks() if not (name := t.get_name()).startswith("message pump ")
+    ]
+    now = datetime.now()
+    ui.lbl_event_horizon.update(
+        f"Event horizon: {date_str(ui.global_state.docker_state.event_horizon)}"
+        f" / [bold cyan]{age_str(now, ui.global_state.docker_state.event_horizon)}[/]"
+    )
+    ui.lbl_runtime.update(
+        f"runtime: {date_str(ui.global_state.docker_state.started_at)}"
+        f" / [bold cyan]{age_str(now, ui.global_state.docker_state.started_at)}[/]"
+    )
+    ui.lbl_switches.update(
+        "\n".join(
+            f"{key:.<20}: [bold  cyan]{markup_escape('[x]' if value else '[ ]')}[/]"
+            for key, value in ui.global_state.switches.items()
+        )
+    )
+    ui.lbl_expiration.update(
+        "\n".join(
+            f"{key:.<20}: [bold cyan]{dur_str(value):>5s}[/]"
+            for key, value in ui.global_state.expiration_ages.items()
+        )
+    )
+    cleanup_interval = ui.global_state.intervals["cleanup"]
+    ui.btn_clean.label = (
+        f"Cleanup now! {dur_str(cleanup_interval - ui.global_state.cleanup_fuse)}"
+        f" (interval={dur_str(cleanup_interval)})"
+    )
 
-    mqueue = global_state.new_update_queue()
-    await websocket.accept()
+    # toggles: cleanup container / images / volumes / build cache
+    # │ connections:       1
+    # │ tasks:             34, missing / unknown: none /  none
+    # │ initially crawled: containers: True images: True volumes: True networks: True
 
+    # Tables:
+    # containers
+    # images
+    # rules
+    # unmatched tags
+    docker_version = (
+        process_output("docker --version").split("\n", maxsplit=1)[0].split(sep=" ", maxsplit=2)[2]
+    )
+    cpu_percent = psutil.cpu_percent()
+    cpu_count = psutil.cpu_count()
+    ui.update_status_bar(
+        f" PID: {current_process.pid}"
+        f" / {current_process.cpu_percent():6.1f}% CPU"
+        f" / {len(tasks)} tasks"
+        f" │ System CPU: {cpu_percent:5.1f}% / {int(cpu_percent * cpu_count):4d}%"
+        f" │ docker-shaper v{__version__}"
+        f" │ docker v{docker_version}"
+    )
+    # ui.lbl_stats1.update()
+    await asyncio.sleep(3)
+
+
+def update_node_labels(ui: DockerShaperUI) -> None:
+    """Fills some labels with useful information"""
+    total_cpu = sum(map(lambda c: c.cpu_usage(), ui.global_state.docker_state.containers.values()))
+    total_mem = sum(map(lambda c: c.mem_usage(), ui.global_state.docker_state.containers.values()))
+    ui.patterns_node.set_label(f"Image-pattern ({len(ui.removal_patterns)})")
+    ui.containers_node.set_label(
+        f"Containers ({len(ui.global_state.docker_state.containers):2d})"
+        f" {' ' * 56} [bold]{total_cpu * 100:7.2f}% - {total_mem >> 20:6d}MiB[/]"
+    )
+    ui.images_node.set_label(f"Images ({len(ui.global_state.docker_state.images)})")
+    ui.volumes_node.set_label(f"Volumes ({len(ui.global_state.docker_state.volumes)})")
+    ui.networks_node.set_label(f"Networks ({len(ui.global_state.docker_state.networks)})")
+
+
+async def schedule_cleanup(ui: DockerShaperUI) -> None:
+    while True:
+        if (
+            interval := ui.global_state.intervals.get("cleanup", 3600)
+        ) and ui.global_state.cleanup_fuse > interval:
+            ui.global_state.cleanup_fuse = 0
+            break
+        if (interval - ui.global_state.cleanup_fuse) % 60 == 0:
+            log().debug(
+                "cleanup: %s seconds to go..",
+                (interval - ui.global_state.cleanup_fuse),
+            )
+        await asyncio.sleep(1)
+        ui.global_state.cleanup_fuse += 1
+    await asyncio.ensure_future(cleanup(ui.global_state))
+
+
+def load_config(global_state: GlobalState, config_file_path: Path) -> ModuleType:
+    """Load the config module and invoke `reconfigure`"""
+    module = utils.load_module(config_file_path)
     try:
-        while True:
-            message = await mqueue.get()
-            await websocket.send(message)
-            reply = await websocket.receive()
-            log().debug("reply to '%s': '%s'", message, reply)
-    except asyncio.CancelledError:  # pylint: disable=try-except-raise
-        raise
-    except Exception:  # pylint: disable=broad-except
-        log().exception("Unhandled exception in control")
-    finally:
-        global_state.remove_queue(mqueue)
-        log().info("Connection closed")
+        module.modify(global_state)
+        reconfigure(global_state)
+    except AttributeError:
+        log().warning("File %s does not provide a `modify(global_state)` function")
+    return module
+
+
+async def on_changed_file(global_state: GlobalState, config_file_path: Path, changes) -> None:
+    for changed_file, module in changes:
+        try:
+            changed_file_str = changed_file.as_posix().replace(Path.home().as_posix(), "~")
+            if changed_file == config_file_path:
+                log().info("config file %s changed - apply changes", changed_file_str)
+                load_config(global_state, config_file_path)
+            else:
+                log().info("file %s changed - reload module", changed_file_str)
+                assert module
+                importlib.reload(module)
+        except Exception:  # pylint: disable=broad-except
+            report(global_state)
+            await asyncio.sleep(5)
+
+
+def container_markup(container: Container) -> str:
+    status_markups = {"running": "cyan bold"}
+    image_str, status_str = (
+        ("", "")
+        if not container.show
+        else (
+            f" image:[bold]{short_id(container.show.Image)}[/]",
+            f" - [{status_markups.get(container.show.State.Status, 'grey53')}]"
+            f"{container.show.State.Status:7s}[/]",
+        )
+    )
+    return (
+        f"[bold]{container.short_id}[/] / {container.name:<26s}{image_str}{status_str}"
+        f" - {container.cpu_usage() * 100:7.2f}%"
+        f" - {container.mem_usage() >> 20:6d}MiB"
+    )
+
+
+async def maintain_docker_stats_tree(ui: DockerShaperUI) -> None:
+    container_nodes = {}
+    image_nodes = {}
+    reference_nodes: dict[ImageIdent, TreeNode] = {}
+    network_nodes = {}
+    volume_nodes = {}
+
+    ui.docker_stats_tree.root.expand()
+    ui.docker_stats_tree.root.allow_expand = False
+
+    # wait for all items to be registered
+    while not all(
+        (
+            ui.global_state.docker_state.containers_crawled,
+            ui.global_state.docker_state.images_crawled,
+            ui.global_state.docker_state.volumes_crawled,
+            ui.global_state.docker_state.networks_crawled,
+        )
+    ):
+        log().info(
+            "wait for initial crawls (C: %s, I: %s, V: %s, N: %s)",
+            ui.global_state.docker_state.containers_crawled,
+            ui.global_state.docker_state.images_crawled,
+            ui.global_state.docker_state.volumes_crawled,
+            ui.global_state.docker_state.networks_crawled,
+        )
+        await asyncio.sleep(1)
+
+    # add all containers known up to now - will be maintained later
+    for container in ui.global_state.docker_state.containers.values():
+        container_nodes[container.id] = ui.containers_node.add(f"{container}", data=container.id)
+
+    # add all images
+    pattern_issues = []
+    for img in ui.global_state.docker_state.images.values():
+        img_node = image_nodes[img.id] = ui.images_node.add(f"{img}", expand=True)
+        for tag in img.tags:
+            dep_age, reason = expiration_age_from_image_name(ui.removal_patterns, tag, 666)
+            reason_markup = "bold red"
+            if reason in ui.removal_patterns:
+                if reason not in ui.pattern_usage_count:
+                    ui.pattern_usage_count[reason] = 0
+                ui.pattern_usage_count[reason] += 1
+                reason_markup = "sky_blue2"
+            else:
+                pattern_issues.append(f"{tag} # {reason}")
+            img_node.add(
+                f"dep_age=[sky_blue2]{dep_age:10d}[/]"
+                f" [bold]{tag}[/] '[{reason_markup}]{reason}[/]'"
+            )
+
+    # add all volumes
+    for volume in ui.global_state.docker_state.volumes.values():
+        volume_nodes[volume.Name] = ui.volumes_node.add(f"{volume}")
+
+    # add all networks
+    for network in ui.global_state.docker_state.networks.values():
+        network_nodes[network.Id] = ui.networks_node.add(f"{network}")
+
+    # add all pattern
+    for issue in pattern_issues:
+        ui.patterns_node.add(f"[bold red]{issue}[/]'")
+    for pattern, dep_age in ui.removal_patterns.items():
+        usage_count = ui.pattern_usage_count.get(pattern, 0)
+        if usage_count == 0:
+            pattern_issues.append(pattern)
+        ui.patterns_node.add(f"{usage_count:3d}: r'[sky_blue2]{pattern}[/]'")
+
+    with (BASE_DIR / "pattern-issues.txt").open("w", encoding="utf-8") as issues_file:
+        issues_file.write("\n".join(pattern_issues))
+
+    ui.update_node_labels()
+
+    async for mtype, mtext, mobj in ui.global_state.docker_state.wait_for_change():
+        # TODO: this is an endless loop - content should be dynamic.
+        handle_docker_state_message(ui.global_state, mtype, mtext, mobj)
+        ui.docker_stats_tree.root.set_label(
+            f"{utils.get_hostname()}"
+            f" / horizon={date_str(ui.global_state.docker_state.event_horizon)}"
+            f" ({dur_str(int(time.time()) - ui.global_state.docker_state.event_horizon)})"
+        )
+
+        if mtype in {"container_add", "container_del", "container_update"}:
+            cnt: Container = cast(Container, mobj)
+            if mtype == "container_add" and cnt.id not in container_nodes:
+                container_nodes[cnt.id] = ui.containers_node.add(f"{cnt}", data=cnt.id)
+            if mtype == "container_update":
+                if cnt.id not in container_nodes:
+                    # todo: investigate - node should be available already
+                    log().warning("container %s not known to UI yet but should", cnt.id)
+                    container_nodes[cnt.id] = ui.containers_node.add(f"{cnt}", data=cnt.id)
+                container_nodes[cnt.id].set_label(container_markup(cnt))
+            if mtype == "container_del" and cnt.id in container_nodes:
+                if cnt.id in container_nodes:
+                    container_nodes[cnt.id].remove()
+                    del container_nodes[cnt.id]
+
+            ui.update_node_labels()
+
+        elif mtype in {"image_add", "image_del", "image_update"}:
+            image_id = mtext
+
+            if mtype == "image_del":
+                if image_id in image_nodes:
+                    image_nodes[image_id].remove()
+                    del image_nodes[image_id]
+                continue
+            image = ui.global_state.docker_state.images[image_id]
+            if mtype == "image_add" and image.id not in image_nodes:
+                image_nodes[image.id] = ui.images_node.add(f"{image}")
+            if mtype == "image_update":
+                if image.id not in image_nodes:
+                    # todo: investigate - node should be available already
+                    log().warning("image %s not known to UI yet but should", image.id)
+                    image_nodes[image.id] = ui.images_node.add(f"{image}")
+                image_nodes[image.id].set_label(f"{image} - +")
+
+            ui.update_node_labels()
+
+        elif mtype in {"volume_add", "volume_del"}:
+            volume_id = mtext
+            if mtype == "volume_add" and volume_id not in volume_nodes:
+                vol: Volume = cast(Volume, mobj)
+                volume_nodes[volume_id] = ui.volumes_node.add(f"{vol}")
+            if mtype == "volume_del":
+                if volume_id in volume_nodes:
+                    volume_nodes[volume_id].remove()
+                    del volume_nodes[volume_id]
+
+            ui.update_node_labels()
+
+        elif mtype in {"network_add", "network_del"}:
+            network_id = mtext
+            if mtype == "network_add" and network_id not in network_nodes:
+                netw: Network = cast(Network, mobj)
+                network_nodes[network_id] = ui.networks_node.add(f"{netw}")
+            if mtype == "network_del":
+                if network_id in network_nodes:
+                    network_nodes[network_id].remove()
+                    del network_nodes[network_id]
+            ui.update_node_labels()
+
+        elif mtype in {"reference_update", "reference_del"}:
+            ident = cast(ImageIdent, mobj)
+            if mtype == "reference_update":
+                label_str = (
+                    f"{ident} - " f"{date_str(ui.global_state.docker_state.last_referenced[ident])}"
+                )
+                if ident in reference_nodes:
+                    reference_nodes[ident].set_label(label_str)
+                else:
+                    reference_nodes[ident] = ui.references_node.add(label_str, allow_expand=False)
+            if mtype == "reference_del" and ident in reference_nodes:
+                reference_nodes[ident].remove()
+                del reference_nodes[ident]
+
+        elif mtype in {"exception", "error", "warning", "info"}:
+            pass
+        else:
+            log().error("don't know message type %s", mtype)
