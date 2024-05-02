@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "docker-shaper"
-version = "2.0.0"
+version = "2.0.1"
 description = "Keeps Docker resources in shape based on rules and usage"
 authors = ["Frans Fürst <frans.fuerst@checkmk.com>"]
 repository = "https://github.com/Checkmk/checkmk-dev-tools"
@@ -52,6 +52,7 @@ types-psutil = "*"
 # poetry version patch [--dry-run]
 [tool.poetry_bumpversion.file."docker_shaper/__init__.py"]
 [tool.poetry_bumpversion.file."docker_shaper/server.py"]
+
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
