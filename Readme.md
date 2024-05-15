@@ -129,7 +129,7 @@ poetry install
   - build and check a package
 ```sh
 poetry build && \
-twine check dist/* &&
+poetry run twine check dist/* &&
 python3 -m pip uninstall -y checkmk_dev_tools && \
 python3 -m pip install --user dist/checkmk_dev_tools-$(grep -E "^version.?=" pyproject.toml | cut -d '"' -f 2)-py3-none-any.whl
 ```

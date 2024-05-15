@@ -11,17 +11,17 @@ packages = [
 exclude = ["cmk_dev/out"]
 
 [tool.poetry.scripts]
-cmk-dev = 'cmk_dev.cli:main'
-decent-output = 'cmk_dev.decent_output:main'
-ci-artifacts = 'cmk_dev.ci_artifacts:main'
-procmon = 'cmk_dev.procmon:main'
-cpumon = 'cmk_dev.cpumon:main'
-check-rpath = 'cmk_dev.check_rpath:main'
-pycinfo = 'cmk_dev.pycinfo:main'
-not-picked = 'cmk_dev.not_picked:main'
-last-access = 'cmk_dev.last_access:main'
 activity-from-fs = 'cmk_dev.activity_from_fs:main'
 binreplace = 'cmk_dev.binreplace:main'
+check-rpath = 'cmk_dev.check_rpath:main'
+ci-artifacts = 'cmk_dev.ci_artifacts:main'
+cmk-dev = 'cmk_dev.cli:main'
+cpumon = 'cmk_dev.cpumon:main'
+decent-output = 'cmk_dev.decent_output:main'
+last-access = 'cmk_dev.last_access:main'
+not-picked = 'cmk_dev.not_picked:main'
+procmon = 'cmk_dev.procmon:main'
+pycinfo = 'cmk_dev.pycinfo:main'
 
 [tool.poetry.dependencies]
 python = "^3.10.4"  # currently lowest supported Python version (CI Build Nodes)
@@ -51,7 +51,6 @@ pre-commit = "*"
 [build-system]
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
-
 
 [tool.black]
 line-length = 100
