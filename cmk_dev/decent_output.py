@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 
-"""Run a command and print output only after a given amount of time in seconds
+"""
+Copyright (C) 2024 Checkmk GmbH - License: GNU General Public License v2
+This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
+conditions defined in the file COPYING, which is part of this source code package.
+
+Run a command and print output only after a given amount of time in seconds
 
 E.g. `decent-output 2 docker build .`
 """

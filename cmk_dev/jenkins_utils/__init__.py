@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
+"""Provide information about CI artifacts and make them available locally
 
-"""Provide information about CI artifacts and make them available locally"""
+Copyright (C) 2024 Checkmk GmbH - License: GNU General Public License v2
+This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
+conditions defined in the file COPYING, which is part of this source code package.
+"""
 
-# _pylint: disable=too-many-branches
-# _pylint: disable=too-many-arguments
 # pylint: disable=fixme
 
 import json
@@ -36,7 +38,7 @@ JobResult = Literal["FAILURE", "SUCCESS", "ABORTED", "UNSTABLE"]
 
 def log() -> logging.Logger:
     """Convenience function retrieves 'our' logger"""
-    return logging.getLogger("cmk-dev.jenkins")
+    return logging.getLogger("trickkiste.cmk-dev.jenkins")
 
 
 class JobTreeElement(BaseModel):
@@ -278,7 +280,7 @@ class AugmentedJenkinsClient:
             url=url,
             username=username,
             password=password,
-            timeout=timeout if timeout is not None else 20,
+            timeout=timeout if timeout is not None else 60,
         )
 
         # First API call gives us

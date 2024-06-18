@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 
-"""Starts a process and logs file access (later maybe more)"""
+"""Starts a process and logs file access (later maybe more)
+
+Copyright (C) 2024 Checkmk GmbH - License: GNU General Public License v2
+This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
+conditions defined in the file COPYING, which is part of this source code package.
+"""
 
 # pylint: disable=fixme
 
@@ -31,7 +36,7 @@ from ttrace import (
 
 def log() -> logging.Logger:
     """Convenience function retrieves 'our' logger"""
-    return logging.getLogger("cmk-dev.procmon")
+    return logging.getLogger("trickkiste.cmk-dev.procmon")
 
 
 def load_filter_pattern(file_path: str | Path) -> str:

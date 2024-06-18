@@ -23,8 +23,12 @@ Install it locally using `pip`:
 
 ### `ci-artifacts`
 
-`ci-rtifacts` is a tool which makes artifacts of CI jobs (currently only Jenkins)
-locally available based on certain constraints like job parameters and time constraints.
+`ci-artifacts` is a tool for accessing and triggering (currently Jenkins only) CI job builds and
+making build artifacts available locally in an efficient way (i.e. avoiding unnessessary builds by
+comparing certain constraints like job parameters and time of already available builds).
+
+Formerly it was only used to make artifacts available which is the reason for the name and some
+CLI desing desicions.
 
 
 #### Usage

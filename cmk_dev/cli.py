@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 
 """Checkmk DevOps tools - CLI
+
+Copyright (C) 2024 Checkmk GmbH - License: GNU General Public License v2
+This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
+conditions defined in the file COPYING, which is part of this source code package.
 """
 
-import importlib.metadata
 import logging
 import sys
 from argparse import ArgumentParser
 from argparse import Namespace as Args
-from contextlib import suppress
 from pathlib import Path
 from typing import Sequence, Union
 
@@ -18,6 +20,8 @@ import cmk_dev.cpumon
 
 # import cmk_dev.procmon
 import cmk_dev.pycinfo
+
+__version__ = "0.1.62"  # It MUST match the version in pyproject.toml file
 
 
 def parse_args(argv: Union[Sequence[str], None] = None) -> Args:
@@ -114,26 +118,7 @@ def parse_args(argv: Union[Sequence[str], None] = None) -> Args:
 
 def logger() -> logging.Logger:
     """Named logger"""
-    return logging.getLogger("cmk-dev")
-
-
-def extract_version() -> str:
-    """Returns either the version of installed package or the one
-    found in nearby pyproject.toml"""
-    with suppress(FileNotFoundError, StopIteration):
-        with open(
-            Path(__file__).parent.parent / "pyproject.toml", encoding="utf-8"
-        ) as pyproject_toml:
-            version = (
-                next(line for line in pyproject_toml if line.startswith("version"))
-                .split("=")[1]
-                .strip("'\"\n ")
-            )
-            return f"{version}-dev"
-    return importlib.metadata.version("checkmk_dev_tools")
-
-
-__version__ = extract_version()
+    return logging.getLogger("trickkiste.cmk-dev")
 
 
 def shorten_home(path: Union[Path, str]) -> Path:

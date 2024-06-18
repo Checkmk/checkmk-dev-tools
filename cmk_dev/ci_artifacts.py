@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 
-"""Provide information about CI artifacts and make them available locally"""
+"""Provide information about CI artifacts and make them available locally
+Copyright (C) 2024 Checkmk GmbH - License: GNU General Public License v2
+This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
+conditions defined in the file COPYING, which is part of this source code package.
+"""
 
 # pylint: disable=too-many-branches
 # pylint: disable=too-many-arguments
@@ -24,7 +28,9 @@ from typing import Any, cast
 from trickkiste.logging_helper import apply_common_logging_cli_args, setup_logging
 from trickkiste.misc import compact_dict, cwd, md5from, split_params
 
-from cmk_dev.jenkins_utils import (
+from jenkins import Jenkins
+
+from .jenkins_utils import (
     AugmentedJenkinsClient,
     Build,
     BuildId,
@@ -37,8 +43,7 @@ from cmk_dev.jenkins_utils import (
     extract_credentials,
     params_from,
 )
-from cmk_dev.utils import Fatal
-from jenkins import Jenkins
+from .utils import Fatal
 
 # Todo: warn about missing parameters
 # Todo: default to `$REPO/package_download` rather than `out`
@@ -168,7 +173,7 @@ def parse_args() -> Args:
 
 def log() -> logging.Logger:
     """Convenience function retrieves 'our' logger"""
-    return logging.getLogger("cmk-dev.cia")
+    return logging.getLogger("trickkiste.cmk-dev.cia")
 
 
 def flatten(params: None | Sequence[JobParams]) -> None | JobParams:
@@ -834,7 +839,7 @@ def main() -> None:
             os.environ["FORCE_COLOR"] = "true"
             os.environ["COLUMNS"] = "200"
 
-        setup_logging(log(), args.log_level)
+        setup_logging(log(), args.log_level, show_time=False, show_name=False, show_funcname=False)
 
         log().debug("Parsed args: %s", args)
         args.func(args)
