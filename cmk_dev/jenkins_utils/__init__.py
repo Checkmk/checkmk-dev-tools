@@ -202,6 +202,93 @@ class Job(SimpleJob):
         return self
 
 
+class BuildNode(PedanticBaseModel):
+    """A build node model"""
+
+    name: str
+    offline: bool
+
+    actions: None | Sequence[dict[str, Any]] = None
+    assignedLabels: None | Sequence[dict[str, Any]] = None
+    description: None | str = None
+    executors: None | Sequence[dict[str, Any]] = None
+    icon: None | str = None
+    iconClassName: None | str = None
+    idle: None | bool = None
+    jnlpAgent: None | bool = None
+    launchSupported: None | bool = None
+    loadStatistics: None | dict[str, Any] = None
+    manualLaunchAllowed: None | bool = None
+    monitorData: None | dict[str, Any] = None
+    numExecutors: None | int = None
+    offlineCause: None | str = None
+    offlineCauseReason: None | str = None
+    oneOffExecutors: None | Sequence[dict[str, Any]] = None
+    temporarilyOffline: None | bool = None
+    absoluteRemotePath: None | str = None
+
+    displayName: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def correct(cls, obj: Json[dict[str, Any]]) -> Json[dict[str, Any]]:
+        """Refactor init to match our excpectations"""
+        return {
+            **obj,
+            "name": obj.get("name") or obj.get("displayName"),
+            "displayName": obj.get("name") or obj.get("displayName"),
+        }
+
+
+class StageInfo(PedanticBaseModel):
+    """Historic information about a pipeline stage"""
+
+    name: str
+    begin: int
+    duration: int
+    execNode: str
+    status: Literal["FAILED", "IN_PROGRESS", "SUCCESS", "ABORTED", "NOT_EXECUTED", "UNSTABLE"]
+
+    @model_validator(mode="before")
+    @classmethod
+    def correct(cls, obj: Json[dict[str, Any]]) -> Json[dict[str, Any]]:
+        """Refactor init to match our excpectations"""
+        return {
+            "name": obj["name"],
+            "begin": obj["startTimeMillis"] // 1000,
+            "duration": obj["durationMillis"] // 1000,
+            "execNode": obj["execNode"],
+            "status": obj["status"],
+        }
+
+
+class BuildStages(PedanticBaseModel):
+    """Information about build stages"""
+
+    stages: Sequence[StageInfo]
+    begin: int
+    duration: int
+    end: int
+    id: str
+    name: str
+    status: str
+    # ignore: pauseDurationMillis, queueDurationMillis, _links
+
+    @model_validator(mode="before")
+    @classmethod
+    def correct(cls, obj: Json[dict[str, Any]]) -> Json[dict[str, Any]]:
+        """Refactor init to match our excpectations"""
+        return {
+            "id": obj["id"],
+            "name": obj["name"],
+            "begin": obj["startTimeMillis"] // 1000,
+            "duration": obj["durationMillis"] // 1000,
+            "end": obj["endTimeMillis"] // 1000,
+            "status": obj["status"],
+            "stages": obj["stages"],
+        }
+
+
 class Change(PedanticBaseModel):
     """Infos about git change"""
 
@@ -477,6 +564,20 @@ class AugmentedJenkinsClient:
         return self.client.get_queue_info()
 
     @asyncify
+    def build_stages(self, job: str | Sequence[str] | Job, build_number: int) -> BuildStages:
+        """Returns validated build stages info"""
+        return BuildStages.model_validate(
+            self.client.get_build_stages(
+                (
+                    job
+                    if isinstance(job, str)
+                    else job.path if isinstance(job, Job) else "/".join(job)
+                ),
+                build_number,
+            )
+        )
+
+    @asyncify
     def fetch_jvm_ressource_stats(self) -> Mapping[str, int]:
         """Returns information about available and used memory in JVM"""
         log().debug("fetch JVM ressource stats via script")
@@ -499,6 +600,36 @@ class AugmentedJenkinsClient:
             ).items()
         }
 
+    @asyncify
+    def running_builds(self) -> Sequence[SimpleBuild]:
+        """Async validating wrapper for Jenkins.get_running_builds()"""
+        return list(map(SimpleBuild.model_validate, self.client.get_running_builds()))
+
+    @asyncify
+    def build_nodes(self) -> Sequence[BuildNode]:
+        """Async validating wrapper for Jenkins.get_nodes()"""
+        return list(map(BuildNode.model_validate, self.client.get_nodes()))
+
+    @asyncify
+    def node_info(self, name: str) -> BuildNode:
+        """Async validating wrapper for Jenkins.get_node_info()"""
+        return BuildNode.model_validate(self.client.get_node_info(name))
+
+    async def stages(self, job: str | Sequence[str] | Job) -> Mapping[int, Sequence[StageInfo]]:
+        """Fetch stage information about recently executed builds"""
+        ## pylint: disable=protected-access
+        job_info = (
+            job
+            if isinstance(job, Job)
+            else await self.job_info(job if isinstance(job, str) else "/".join(job))
+        )
+        log().debug("fetch stage information for %s", job_info.path)
+        run_info = self.client._session.get(f"{job_info.url}/wfapi/runs").json()
+        return {
+            int(run["id"]): [StageInfo.model_validate(stage) for stage in run["stages"]]
+            for run in run_info
+        }
+
 
 async def main() -> None:  # pylint: disable=too-many-locals
     """Just a non-invasive test function"""
@@ -506,6 +637,15 @@ async def main() -> None:  # pylint: disable=too-many-locals
     log().setLevel(logging.DEBUG)
 
     async with AugmentedJenkinsClient(**extract_credentials(), timeout=60) as jenkins_client:
+        for build in await jenkins_client.running_builds():
+            print(build)
+
+        for build_node in await jenkins_client.build_nodes():
+            print(build_node)
+            info = await jenkins_client.node_info(build_node.name)
+            assert info.name == build_node.name
+            print(info)
+
         async for job_path, job in jenkins_client.traverse_job_tree("checkmk"):
             if job.type == "Folder":
                 continue
@@ -513,15 +653,34 @@ async def main() -> None:  # pylint: disable=too-many-locals
             assert isinstance(job, SimpleJob)  # can only be a SimpleJob now..
             job_info = await jenkins_client.job_info(job_path)
 
+            status = job_info.color.split("_")[0]
+
+            # if status in {"disabled", "notbuilt", "blue"}:
+            #    continue
+
+            job_stages = await jenkins_client.stages(job_path)
+            print(job_stages)
+
+            assert status in {
+                "red",
+                "yellow",
+                "disabled",
+                "notbuilt",
+                "blue",
+                "aborted",
+            }, job_info.color
+
             print(f"{job_info}, url={job_info.url}")
             last_successful, first_failing, last_build = (
                 await jenkins_client.failing_transition_numbers(job_info)
             )
-            assert bool(first_failing) is not bool(last_successful == last_build)
+            assert bool(first_failing) is not bool(last_successful == last_build) or last_build == 1
             if first_failing:
                 print(last_successful, first_failing, last_build)
                 change_set = await jenkins_client.change_sets(job_info, first_failing)
                 print(change_set)
+                build_stages = await jenkins_client.build_stages(job_info, first_failing)
+                print(build_stages)
 
             await job_info.expand(jenkins_client)
             for build_nr, build_info in job_info.build_infos.items():
