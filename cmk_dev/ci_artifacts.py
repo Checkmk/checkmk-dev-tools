@@ -10,6 +10,7 @@ conditions defined in the file COPYING, which is part of this source code packag
 # pylint: disable=too-many-arguments
 # pylint: disable=fixme
 
+import asyncio
 import json
 import logging
 import os
@@ -181,16 +182,17 @@ def flatten(params: None | Sequence[JobParams]) -> None | JobParams:
     return {key: value for param in params for key, value in param.items()} if params else None
 
 
-def _fn_info(args: Args) -> None:
+async def _fn_info(args: Args) -> None:
     """Entry point for information about job artifacts"""
-    with AugmentedJenkinsClient(
+    async with AugmentedJenkinsClient(
         **extract_credentials(args.credentials), timeout=args.timeout
     ) as jenkins:
-        class_name = (job_info := jenkins.raw_job_info(args.job))["_class"]
+        job_info = await jenkins.raw_job_info(args.job)
+        class_name = job_info["_class"]
         if class_name == "com.cloudbees.hudson.plugins.folder.Folder":
             print(f"Folder({job_info['name']}, jobs: {len(cast(list[Any], job_info['jobs']))})")
         elif class_name == "org.jenkinsci.plugins.workflow.job.WorkflowJob":
-            job = Job.model_validate(job_info).expand(jenkins)
+            job = await Job.model_validate(job_info).expand(jenkins)
             print(job)
             for build_nr, build in job.build_infos.items():
                 print(f"  - {build_nr}: {build}")
@@ -462,14 +464,14 @@ def build_id_from_queue_item(client: Jenkins, queue_id: QueueId) -> BuildId:
         time.sleep(1)
 
 
-def find_matching_queue_item(
+async def find_matching_queue_item(
     jenkins_client: AugmentedJenkinsClient,
     job: Job,
     params: None | JobParams,
     path_hashes: PathHashes,
 ) -> None | BuildId:
     """Looks for a queued build matching job and parameters and returns the QueueId"""
-    for queue_item in jenkins_client.client.get_queue_info():
+    for queue_item in await jenkins_client.queue_info():
         if not cast(str, queue_item.get("_class", "")).startswith("hudson.model.Queue"):
             continue
         if cast(str, cast(GenMap, queue_item.get("task", {})).get("url", "")) != job.url:
@@ -528,23 +530,23 @@ def compose_out_dir(base_dir: Path, out_dir: Path) -> Path:
     return out_dir
 
 
-def _fn_request_build(args: Args) -> None:
+async def _fn_request_build(args: Args) -> None:
     """Entry point for a build request
     If none of the existing builds match the conditions a new build will be
     issued.
     This can get complicated since we don't know the outcome of unfinished or
     queued elements yet (result and dependency path hashes).
     """
-    with AugmentedJenkinsClient(
+    async with AugmentedJenkinsClient(
         **extract_credentials(args.credentials), timeout=args.timeout
     ) as jenkins_client:
-        if not (job := jenkins_client.job_info(args.job)).type == "WorkflowJob":
+        if not (job := await jenkins_client.job_info(args.job)).type == "WorkflowJob":
             raise Fatal(f"{args.job} is not a WorkflowJob")
         # In case we force a new build anyway we don't have to look for an existing one
         if matching_build := (
             None
             if args.force_new_build
-            else identify_matching_build(
+            else await identify_matching_build(
                 job,
                 jenkins_client=jenkins_client,
                 params=flatten(args.params),
@@ -586,7 +588,7 @@ def _fn_request_build(args: Args) -> None:
                 )
             )
         else:
-            new_build = trigger_build(jenkins_client, job, new_build_params)
+            new_build = await trigger_build(jenkins_client, job, new_build_params)
             print(
                 json.dumps(
                     {
@@ -601,7 +603,7 @@ def _fn_request_build(args: Args) -> None:
             )
 
 
-def _fn_await_and_handle_build(args: Args) -> None:
+async def _fn_await_and_handle_build(args: Args) -> None:
     """Entry point for artifacts download only"""
     out_dir = args.base_dir / (getattr(args, "out_dir", "") or "")
     if out_dir.exists() and not out_dir.is_dir():
@@ -617,10 +619,10 @@ def _fn_await_and_handle_build(args: Args) -> None:
     if not job_number:
         raise Fatal("No build number provided. Use either --build-number or `<job-name>:<number>`.")
 
-    with AugmentedJenkinsClient(
+    async with AugmentedJenkinsClient(
         **extract_credentials(args.credentials), timeout=args.timeout
     ) as jenkins_client:
-        completed_build = await_build(
+        completed_build = await await_build(
             job_name,
             job_number,
             jenkins_client=jenkins_client,
@@ -650,20 +652,20 @@ def _fn_await_and_handle_build(args: Args) -> None:
         )
 
 
-def _fn_fetch(args: Args) -> None:
+async def _fn_fetch(args: Args) -> None:
     """Entry point for fetching (request and download combined) artifacts"""
     out_dir = compose_out_dir(args.base_dir, args.out_dir)
     path_hashes = compose_path_hashes(args.base_dir, args.dependency_paths)
-    with AugmentedJenkinsClient(
+    async with AugmentedJenkinsClient(
         **extract_credentials(args.credentials), timeout=args.timeout
     ) as jenkins_client:
-        if not (job := jenkins_client.job_info(args.job)).type == "WorkflowJob":
+        if not (job := await jenkins_client.job_info(args.job)).type == "WorkflowJob":
             raise Fatal(f"{args.job} is not a WorkflowJob")
         # In case we force a new build anyway we don't have to look for an existing one
         matching_build = (
             None
             if args.force_new_build
-            else identify_matching_build(
+            else await identify_matching_build(
                 job,
                 jenkins_client=jenkins_client,
                 params=flatten(args.params),
@@ -674,7 +676,7 @@ def _fn_fetch(args: Args) -> None:
         if args.omit_new_build and not matching_build:
             raise Fatal(f"No matching build found for job '{job.name}' but new builds are omitted.")
 
-        build_candidate = matching_build or trigger_build(
+        build_candidate = matching_build or await trigger_build(
             jenkins_client,
             job,
             compose_build_params(
@@ -687,7 +689,7 @@ def _fn_fetch(args: Args) -> None:
         for key, value in build_candidate.__dict__.items():
             log().debug("  %s: %s", key, value)
 
-        completed_build = await_build(
+        completed_build = await await_build(
             job.path,
             build_candidate.number,
             jenkins_client=jenkins_client,
@@ -715,7 +717,7 @@ def _fn_fetch(args: Args) -> None:
         )
 
 
-def identify_matching_build(
+async def identify_matching_build(
     job: Job,
     *,
     jenkins_client: AugmentedJenkinsClient,
@@ -730,7 +732,7 @@ def identify_matching_build(
     # pylint: disable=too-many-locals
 
     # fetch a job's build history first
-    job.expand(jenkins_client)
+    await job.expand(jenkins_client)
 
     # Look for finished builds
     for build in filter(lambda b: b.completed, job.build_infos.values()):
@@ -744,8 +746,8 @@ def identify_matching_build(
             log().info("found matching unfinished build: %s (%s)", build.number, build.url)
             return build
 
-    if matching_item := find_matching_queue_item(jenkins_client, job, params, path_hashes):
-        return jenkins_client.build_info(job.path, matching_item)
+    if matching_item := await find_matching_queue_item(jenkins_client, job, params, path_hashes):
+        return await jenkins_client.build_info(job.path, matching_item)
 
     return None
 
@@ -771,7 +773,7 @@ def compose_build_params(
     }
 
 
-def trigger_build(
+async def trigger_build(
     jenkins_client: AugmentedJenkinsClient,
     job: Job,
     params: JobParams,
@@ -780,7 +782,7 @@ def trigger_build(
     log().info("start new build for %s", job.path)
     log().info("  params=%s", compact_dict(params))
 
-    return jenkins_client.build_info(
+    return await jenkins_client.build_info(
         job.path,
         build_id_from_queue_item(
             jenkins_client.client,
@@ -789,7 +791,7 @@ def trigger_build(
     )
 
 
-def await_build(
+async def await_build(
     job_full_path: str,
     build_number: int,
     *,
@@ -800,14 +802,14 @@ def await_build(
     """Awaits a Jenkins job build specified by @job_full_path and @build_number and returns the
     awaited Build object. Unexpected build failures or non-matching path hashes will be raised on.
     """
-    current_build_info = jenkins_client.build_info(job_full_path, build_number)
+    current_build_info = await jenkins_client.build_info(job_full_path, build_number)
     if not current_build_info.completed:
         log().info("build #%s still in progress (%s)", build_number, current_build_info.url)
         while True:
             if not current_build_info.completed:
                 log().debug("build %s in progress", build_number)
                 time.sleep(10)
-                current_build_info = jenkins_client.build_info(job_full_path, build_number)
+                current_build_info = await jenkins_client.build_info(job_full_path, build_number)
                 continue
             break
 
@@ -842,7 +844,7 @@ def main() -> None:
         setup_logging(log(), args.log_level, show_time=False, show_name=False, show_funcname=False)
 
         log().debug("Parsed args: %s", args)
-        args.func(args)
+        asyncio.run(args.func(args))
     except Fatal as exc:
         print(exc, file=sys.stderr)
         raise SystemExit(-1) from exc

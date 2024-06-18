@@ -1,5 +1,5 @@
 #!wing
-#!version=9.0
+#!version=10.0
 ##################################################################
 # Wing project file                                              #
 ##################################################################
@@ -14,12 +14,21 @@ proj.directory-list = [{'dirloc': loc('.'),
                         'recursive': True,
                         'watch_for_changes': True}]
 proj.file-type = 'shared'
-proj.launch-config = {loc('cmk_dev/ci_artifacts.py'): ('project',
-        ('-l debug fetch Testing/jjb/checkmk/master/builders/build-linux-agent-updater  --base-dir=~/_TRIBE29/git-check_mk/master-package --out-dir=package_download  --params-no-check=CUSTOM_GIT_REF=0dce883e5bb729f5faf256a982cd22b4d2c1954e --omit-new-build',
+proj.launch-config = {loc('cmk_dev/binreplace.py'): ('project',
+        ('a b /home/frafue/_CHECKMK/checkmk_dev_tools-git/checkmk_dev_tools.wpu',
+         '')),
+                      loc('cmk_dev/ci_artifacts.py'): ('project',
+        ("-l debug fetch Testing/jjb/checkmk/master/builders/build-linux-agent-updater  --base-dir=~/_TRIBE29/git-check_mk/master-package --out-dir=package_download  --params-no-check=CUSTOM_GIT_REF=0dce883e5bb729f5faf256a982cd22b4d2c1954e--params=CMD=./run foo=bar'",
          '')),
                       loc('cmk_dev/cpumon.py'): ('project',
         ('0,1',
          '')),
+                      loc('cmk_dev/listen_std.py'): ('project',
+        ('1 ~/.config',
+         '')),
                       loc('cmk_dev/procmon.py'): ('project',
         ('zoom',
+         '')),
+                      loc('cmk_dev/pycinfo.py'): ('project',
+        ('/home/frafue/_CHECKMK/checkmk_dev_tools-git/additional_packages/docker_shaper/.venv/lib/python3.11/site-packages/pylint/checkers/__pycache__/base_checker.cpython-311.pyc',
          ''))}
