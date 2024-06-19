@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "checkmk-dev-tools"
-version = "0.1.62"
+version = "0.1.63"
 description = "Checkmk DevOps tools"
 authors = ["Frans Fürst <frans.fuerst@checkmk.com>"]
 repository = "https://github.com/Checkmk/checkmk-dev-tools"
@@ -63,6 +63,8 @@ pre-commit = "*"
 
 # see https://pypi.org/project/poetry-bumpversion
 [tool.poetry_bumpversion.file."cmk_dev/__init__.py"]
+[tool.poetry_bumpversion.file."cmk_dev/cli.py"]
+
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

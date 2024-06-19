@@ -4,4 +4,4 @@ This file is part of Checkmk (https://checkmk.com). It is subject to the terms a
 conditions defined in the file COPYING, which is part of this source code package.
 """
 
-__version__ = "0.1.62"  # It MUST match the version in pyproject.toml file
+__version__ = "0.1.63"  # It MUST match the version in pyproject.toml file
