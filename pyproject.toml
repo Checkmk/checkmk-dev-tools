@@ -19,7 +19,7 @@ cmk-dev = 'cmk_dev.cli:main'
 cpumon = 'cmk_dev.cpumon:main'
 decent-output = 'cmk_dev.decent_output:main'
 last-access = 'cmk_dev.last_access:main'
-not-picked = 'cmk_dev.not_picked:main'
+# not-picked = 'cmk_dev.not_picked:main'
 procmon = 'cmk_dev.procmon:main'
 pycinfo = 'cmk_dev.pycinfo:main'
 
