@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "checkmk-dev-tools"
-version = "0.1.64"
+version = "0.1.65"
 description = "Checkmk DevOps tools"
 authors = ["Frans Fürst <frans.fuerst@checkmk.com>"]
 repository = "https://github.com/Checkmk/checkmk-dev-tools"
@@ -30,12 +30,11 @@ pyyaml = "^6.0"
 pydantic = "^2"
 rich = "*"
 
-trickkiste = "^0.1.2"
+trickkiste = "^0.1.4"
 # trickkiste  = {path = "../../_HOME/trickkiste", develop = true}
 
 # actual dependencies, but kept back
 [tool.poetry.group.dev.dependencies]
-python-dateutil = "^2"  # needed by trickkiste but not set as dependency (intentionally)
 textual = "^0.65.1"
 chime = "^0.7.0"
 notify2 = "^0.3.1"
