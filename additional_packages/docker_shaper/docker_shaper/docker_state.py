@@ -750,7 +750,9 @@ class DockerState:
         import_references(self, filepath)
 
 
-async def prune_builder_cache() -> tuple[Sequence[str], Sequence[str], int]:
+async def prune_builder_cache(
+    until: str = "48h", keep_storage: str = "100G"
+) -> tuple[Sequence[str], Sequence[str], int]:
     """Runs `docker builder prune` in background"""
 
     async def acc_stream(stream: StreamReader, prefix: str) -> Sequence[str]:
@@ -760,7 +762,14 @@ async def prune_builder_cache() -> tuple[Sequence[str], Sequence[str], int]:
             result.append(line)
         return result
 
-    cmd = ("docker", "builder", "prune", "--force", "--filter=until=24h", "--keep-storage=50G")
+    cmd = (
+        "docker",
+        "builder",
+        "prune",
+        "--force",
+        f"--filter=until={until}",
+        f"--keep-storage={keep_storage}",
+    )
     process = await create_subprocess_exec(*cmd, stdout=PIPE, stderr=PIPE)
     assert process.stdout and process.stderr
     stdout, stderr, returncode = await asyncio.gather(
