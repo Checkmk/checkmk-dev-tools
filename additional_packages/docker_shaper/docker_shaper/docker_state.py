@@ -1370,7 +1370,7 @@ def export_references(state: DockerState, filepath: Path) -> None:
             eh_file,
             indent=2,
         )
-        log().info("exported image references")
+        state.inform("info", "exported image references")
 
 
 def import_references(state: DockerState, filepath: Path) -> None:
@@ -1386,7 +1386,9 @@ def import_references(state: DockerState, filepath: Path) -> None:
             }
             state.inform("info", "imported image references")
             state.last_referenced = references
-            if (datetime.now() - created).total_seconds() < 60:
+            # allow up to 5min of 'blind time' after a restart (due to Docker socket crash)
+            # this is quite long but for some reason process shutdown used up to 3mins in the past.
+            if (datetime.now() - created).total_seconds() < 5 * 60:
                 state.inform("info", "restored event horizon")
                 state.event_horizon = reference_data["event_horizon"]
             else:
