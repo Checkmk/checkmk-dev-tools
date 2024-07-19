@@ -44,7 +44,7 @@ from docker_shaper.utils import get_hostname
 
 CONFIG_FILE = dynamic.BASE_DIR / "config.py"
 
-__version__ = "2.0.1"  # It MUST match the version in pyproject.toml file
+__version__ = "2.0.3"  # It MUST match the version in pyproject.toml file
 
 
 def log() -> logging.Logger:

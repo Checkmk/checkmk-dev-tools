@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "docker-shaper"
-version = "2.0.1"
+version = "2.0.3"
 description = "Keeps Docker resources in shape based on rules and usage"
 authors = ["Frans Fürst <frans.fuerst@checkmk.com>"]
 repository = "https://github.com/Checkmk/checkmk-dev-tools"
