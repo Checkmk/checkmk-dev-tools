@@ -122,6 +122,9 @@ class DockerShaper(TuiBaseApp):
         """Executed as soon as UI is ready. Called by parent().on_mount()"""
         self.set_log_levels("ALL_DEBUG")
 
+        # only temporary
+        self._richlog.max_lines = 100_000
+
         self.update_dashboard()
         self.run_docker_stats()
         self.maintain_docker_stats_tree()
