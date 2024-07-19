@@ -574,7 +574,7 @@ async def on_button_pressed(ui: DockerShaperUI, event: Button.Pressed) -> None:
     if event.button.id == "quit":
         ui.exit()
     elif event.button.id == "clean":
-        await asyncio.ensure_future(cleanup(ui.global_state))
+        asyncio.ensure_future(trigger_cleanup(ui))
     elif event.button.id == "rotate_log_level":
         utils.increase_loglevel()
         event.button.label = f"rotate log level ({logging.getLevelName(log().level)})"
@@ -674,7 +674,19 @@ async def schedule_cleanup(ui: DockerShaperUI) -> None:
             )
         await asyncio.sleep(1)
         ui.global_state.cleanup_fuse += 1
-    await asyncio.ensure_future(cleanup(ui.global_state))
+    await asyncio.ensure_future(trigger_cleanup(ui))
+
+
+async def trigger_cleanup(ui: DockerShaperUI) -> None:
+    try:
+        ui.btn_clean.disabled = True
+        ui.btn_clean.variant = "error"
+        ui.global_state.cleanup_fuse = 0
+        await asyncio.ensure_future(cleanup(ui.global_state))
+    finally:
+        ui.global_state.cleanup_fuse = 0
+        ui.btn_clean.disabled = False
+        ui.btn_clean.variant = "default"
 
 
 def load_config(global_state: GlobalState, config_file_path: Path) -> ModuleType:
