@@ -19,7 +19,14 @@ The tool will start an interactive terminal UI (TUI).
 poetry run docker-shaper
 ```
 
+### Attach to build nodes
 
+The application is running in a tmux on the build nodes.
+The following command can be used to attach to the session:
+
+```
+ssh -t <build node> "su jenkins -Pc 'tmux attach-session -t docker-shaper'"
+```
 
 ## Development & Contribution
 
