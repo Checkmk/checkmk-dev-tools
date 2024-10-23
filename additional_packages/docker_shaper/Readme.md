@@ -13,11 +13,12 @@ like containers, images and volumes and automatically enforce certain cleanup-ru
 
 ## Usage
 
+The tool will start an interactive terminal UI (TUI).
+
 ```
-docker-shaper serve`
+poetry run docker-shaper
 ```
 
-=> Navigate to e.g. http://my-build-node:5432/
 
 
 ## Development & Contribution
