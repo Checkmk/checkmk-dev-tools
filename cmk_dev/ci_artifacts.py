@@ -26,10 +26,9 @@ from pathlib import Path
 from subprocess import check_output
 from typing import Any, cast
 
+from jenkins import Jenkins
 from trickkiste.logging_helper import apply_common_logging_cli_args, setup_logging
 from trickkiste.misc import compact_dict, cwd, md5from, split_params
-
-from jenkins import Jenkins
 
 from .jenkins_utils import (
     AugmentedJenkinsClient,
@@ -132,7 +131,9 @@ def parse_args() -> Args:
             help="If set, existing files not part of artifacts won't be deleted",
         )
 
-    parser_request = subparsers.add_parser("request", help="Request a build")
+    parser_request = subparsers.add_parser(
+        "request", help="Request a build or identify an existing one."
+    )
     parser_request.set_defaults(func=_fn_request_build)
     apply_common_args(parser_request)
     apply_request_args(parser_request)
@@ -146,18 +147,26 @@ def parse_args() -> Args:
         ),
     )
 
-    parser_await_result = subparsers.add_parser("await-result")
+    parser_await_result = subparsers.add_parser(
+        "await-result", help="Wait for existing build to finish, don't download."
+    )
     parser_await_result.set_defaults(func=_fn_await_and_handle_build, download=False)
     apply_common_args(parser_await_result)
     parser_await_result.add_argument("build_number", type=int, nargs="?")
 
-    parser_download = subparsers.add_parser("download")
+    parser_download = subparsers.add_parser(
+        "download",
+        help="Download artifacts of existing build. Wait for the build to finish if necessary.",
+    )
     parser_download.set_defaults(func=_fn_await_and_handle_build, download=True)
     apply_common_args(parser_download)
     apply_download_args(parser_download)
     parser_download.add_argument("build_number", type=int, nargs="?")
 
-    parser_fetch = subparsers.add_parser("fetch")
+    parser_fetch = subparsers.add_parser(
+        "fetch",
+        help="Trigger or identify matching build, wait for it to finish, download artifacts.",
+    )
     parser_fetch.set_defaults(func=_fn_fetch)
     apply_common_args(parser_fetch)
     apply_request_args(parser_fetch)
