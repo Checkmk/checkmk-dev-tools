@@ -178,6 +178,14 @@ def parse_args() -> Args:
         help="Don't issue new builds, even if no matching build could be found",
     )
 
+    parser_validate = subparsers.add_parser(
+        "validate", help="Request, identify matching or trigger build and wait for it to finish."
+    )
+    parser_validate.set_defaults(func=_fn_fetch, download=False, omit_new_build=False)
+    apply_common_args(parser_validate)
+    apply_request_args(parser_validate)
+    apply_download_args(parser_validate)
+
     return parser.parse_args()
 
 
@@ -705,22 +713,26 @@ async def _fn_fetch(args: Args) -> None:
             check_result=True,
             path_hashes=path_hashes,
         )
+        downloaded_artifacts = (
+            list(
+                chain(
+                    *download_artifacts(
+                        jenkins_client.client,
+                        completed_build,
+                        out_dir,
+                        args.no_remove_others,
+                    )
+                )
+            )
+            if args.download
+            else []
+        )
+
         print(
             json.dumps(
                 {
                     "result": completed_build.result,
-                    "artifacts": (
-                        list(
-                            chain(
-                                *download_artifacts(
-                                    jenkins_client.client,
-                                    completed_build,
-                                    out_dir,
-                                    args.no_remove_others,
-                                )
-                            )
-                        )
-                    ),
+                    "artifacts": downloaded_artifacts,
                 }
             )
         )
