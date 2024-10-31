@@ -634,7 +634,7 @@ async def _fn_await_and_handle_build(args: Args) -> None:
         raise Fatal("Provide only one of separate build number or composite build name")
 
     if not job_number:
-        raise Fatal("No build number provided. Use either --build-number or `<job-name>:<number>`.")
+        raise Fatal("No build number provided. Use `<job-name>:<number>`.")
 
     async with AugmentedJenkinsClient(
         **extract_credentials(args.credentials), timeout=args.timeout

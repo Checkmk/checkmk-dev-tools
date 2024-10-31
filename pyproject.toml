@@ -60,6 +60,10 @@ types-requests = "*"
 types-aiofiles = "*"
 pre-commit = "*"
 
+# install "poetry-bumpversion" to easily bump package version later
+# > poetry self add poetry-bumpversion
+# > poetry version patch --dry-run
+# it is not enough to add it to the projects pyproject.toml file
 # see https://pypi.org/project/poetry-bumpversion
 [tool.poetry_bumpversion.file."cmk_dev/__init__.py"]
 [tool.poetry_bumpversion.file."cmk_dev/cli.py"]
