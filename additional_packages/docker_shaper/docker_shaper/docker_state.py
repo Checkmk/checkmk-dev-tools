@@ -860,33 +860,37 @@ async def watch_container(state: DockerState, container: DockerContainer) -> Non
 
         last_cpu_usage, last_mem_usage, count = 0.0, 0, 0
 
-        async for raw_stats in container.stats():  # type: ignore[no-untyped-call]
-            container_info.last_stats = container_info.stats
-            container_info.stats = ContainerStats(**raw_stats)
-            old_show = container_info.show
-            container_info.show = ContainerShow(
-                **(await container.show())  # type: ignore[no-untyped-call]
-            )
-            cpu_usage = container_info.cpu_usage()
-            mem_usage = container_info.mem_usage()
-            if not old_show and container_info.last_stats:
-                continue
+        while True:
+            try:
+                async for raw_stats in container.stats():  # type: ignore[no-untyped-call]
+                    container_info.last_stats = container_info.stats
+                    container_info.stats = ContainerStats(**raw_stats)
+                    old_show = container_info.show
+                    container_info.show = ContainerShow(
+                        **(await container.show())  # type: ignore[no-untyped-call]
+                    )
+                    cpu_usage = container_info.cpu_usage()
+                    mem_usage = container_info.mem_usage()
+                    if not old_show and container_info.last_stats:
+                        continue
 
-            if update_inform_trigger(
-                count,
-                old_show,
-                container_info.show,
-                cpu_usage,
-                mem_usage,
-                last_cpu_usage,
-                last_mem_usage,
-            ):
-                last_cpu_usage, last_mem_usage = cpu_usage, mem_usage
-                state.inform("container_update", container.id, container_info)
+                    if update_inform_trigger(
+                        count,
+                        old_show,
+                        container_info.show,
+                        cpu_usage,
+                        mem_usage,
+                        last_cpu_usage,
+                        last_mem_usage,
+                    ):
+                        last_cpu_usage, last_mem_usage = cpu_usage, mem_usage
+                        state.inform("container_update", container.id, container_info)
 
-            count += 1
-
-        normally_terminated = True
+                    count += 1
+                normally_terminated = True
+                break
+            except asyncio.TimeoutError:
+                log().debug("container.stats() got TimeoutError")
 
     except DockerError as exc:
         log().warning("DockerError while watching %s: %s", container.id, exc)
