@@ -112,6 +112,7 @@ class DockerShaper(TuiBaseApp):
         self.networks_node = self.docker_stats_tree.root.add("Networks", expand=False)
         self.volumes_node = self.docker_stats_tree.root.add("Volumes", expand=False)
         self.patterns_node = self.docker_stats_tree.root.add("Image-pattern", expand=False)
+        self.task_node = self.docker_stats_tree.root.add("Tasks", expand=False)
 
         self.removal_patterns: MutableMapping[str, int] = {}
         self.pattern_usage_count: MutableMapping[str, int] = {}
@@ -146,6 +147,7 @@ class DockerShaper(TuiBaseApp):
         self.maintain_docker_stats_tree()
         self.watch_fs_changes()
         self.schedule_cleanup()
+        self.update_task_list()
         dynamic.report(self.global_state, "info", "docker-shaper started")
 
     def write_message(self, text: str) -> None:
@@ -301,6 +303,15 @@ class DockerShaper(TuiBaseApp):
                 await dynamic.on_changed_file(self.global_state, CONFIG_FILE, changes)
             except Exception:  # pylint: disable=broad-except
                 dynamic.report(self.global_state)
+
+    @work(exit_on_error=True)
+    async def update_task_list(self) -> None:
+        while True:
+            try:
+                await dynamic.update_task_list(self)
+            except Exception:  # pylint: disable=broad-except
+                dynamic.report(self.global_state)
+            await asyncio.sleep(2)
 
 
 def main() -> None:

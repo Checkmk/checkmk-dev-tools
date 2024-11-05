@@ -830,7 +830,7 @@ def register_container(state: DockerState, container: DockerContainer) -> None:
         return
     log().debug("register container %s", container.id[:10])
     state.containers[container.id] = Container(container)
-    asyncio.ensure_future(watch_container(state, container))
+    asyncio.create_task(watch_container(state, container), name=f"watch_{container.id[:4]}")
 
 
 def unregister_container(state: DockerState, container_id: str) -> None:

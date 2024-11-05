@@ -673,6 +673,26 @@ async def update_dashboard(ui: DockerShaperUI) -> None:
     await asyncio.sleep(3)
 
 
+async def update_task_list(ui: DockerShaperUI) -> None:
+    def callstack(frame):
+        return [
+            f"{elem.filename.split('/')[-1]}:{elem.lineno}:{elem.name}"
+            for elem in traceback.extract_stack(frame)
+        ]
+
+    ui.task_node.remove_children()
+    tasks = [
+        (task_name, coro.__name__, callstack(coro.cr_frame))
+        for task in asyncio.all_tasks()
+        for task_name, coro in ((task.get_name(), task.get_coro()),)
+        if not task_name.startswith("message pump ")
+        if not task_name in {"update header clock", "screen_update", "Animator", "tooltip-timer"}
+        if not coro.__name__ in {"run_async", "_run", "sleep", "add_next", "iterate"}
+    ]
+    for task in tasks:
+        ui.task_node.add_leaf(f"{task}")
+
+
 def update_node_labels(ui: DockerShaperUI) -> None:
     """Fills some labels with useful information"""
     total_cpu = sum(map(lambda c: c.cpu_usage(), ui.global_state.docker_state.containers.values()))
