@@ -25,9 +25,8 @@ rich = "^13"
 textual = "^0"
 psutil = "^5.9.8"
 
-trickkiste = "^0.1.4"
+trickkiste = "^0.2"
 #trickkiste  = {path = "/home/frafue/_HOME/trickkiste", develop = true}
-
 
 
 [tool.poetry.group.dev.dependencies]
