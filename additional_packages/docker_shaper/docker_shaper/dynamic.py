@@ -441,28 +441,34 @@ async def delete_container(global_state: GlobalState, ident: str | Container) ->
     #    )
 
 
-async def cleanup(global_state: GlobalState) -> None:
-    report(global_state, "info", "start cleanup", None)
+async def cleanup(global_state: GlobalState, dry: bool = False) -> None:
+    if not dry:
+        report(global_state, "info", "start cleanup", None)
 
     try:
         now = int(datetime.now().timestamp())
-        # we could go through docker_client.containers/images/volumes, too, but to be more
-        # consistent, we operate on one structure only.
-        for container_info in list(
-            filter(
-                lambda cnt: would_cleanup_container(global_state, cnt, now),
-                global_state.containers.values(),
-            )
-        ):
-            if not global_state.switches.get("remove_container"):
-                log().info("skip removal of container %s", container_info.short_id)
-                continue
-            try:
-                await delete_container(global_state, container_info)
-            except DockerError as exc:
-                log().error(
-                    "Could not delete container %s, error was %s", container_info.short_id, exc
+
+        if global_state.switches.get("remove_container") or dry:
+            # we could go through docker_client.containers/images/volumes, too, but to be more
+            # consistent, we operate on one structure only.
+            for container_info in list(
+                filter(
+                    lambda cnt: would_cleanup_container(global_state, cnt, now),
+                    global_state.containers.values(),
                 )
+            ):
+                if dry:
+                    log().info("skip removal of container %s", container_info.short_id)
+                    continue
+
+                try:
+                    await delete_container(global_state, container_info)
+                except DockerError as exc:
+                    log().error(
+                        "Could not delete container %s, error was %s", container_info.short_id, exc
+                    )
+        else:
+            log().info("skip container cleanup")
 
         # traverse all images, remove expired tags
         # use a DFT approach
@@ -484,21 +490,27 @@ async def cleanup(global_state: GlobalState) -> None:
         #                    log().error("Could not delete image %s, error was %s", ident, exc)
         # await handle_branch(dep_tree)
 
-        # FOR NOW: only handle images without children
-        no_remove_images = not global_state.switches.get("remove_images")
-        image: Image
-        for image in list(global_state.images.values()):
-            if image.children:
-                continue
-
-            for ident, reason in expired_idents(global_state, image, now):
-                log().info("%sexpired: %s (%s)", "SKIP " if no_remove_images else "", ident, reason)
-                if no_remove_images:
+        if global_state.switches.get("remove_images") or dry:
+            image: Image
+            # FOR NOW: only handle images without children
+            for image in list(global_state.images.values()):
+                if image.children:
                     continue
-                try:
-                    await remove_image_ident(global_state, ident)
-                except DockerError as exc:
-                    report(global_state, "error", f"'{ident}' could not be removed: {exc}")
+
+                for ident, reason in expired_idents(global_state, image, now):
+                    log().info("%sexpired: %s (%s)", "SKIP " if dry else "", ident, reason)
+                    if dry:
+                        continue
+
+                    try:
+                        await remove_image_ident(global_state, ident)
+                    except DockerError as exc:
+                        report(
+                            global_state, "error", f"image '{ident}' could not be removed: {exc}"
+                        )
+
+        if dry:
+            return
 
         log().info("Prune docker volumes")
         for volume_name in list(global_state.volumes):
@@ -523,7 +535,8 @@ async def cleanup(global_state: GlobalState) -> None:
             report(global_state, "error", "'docker builder prune' returned non-zero")
 
     finally:
-        report(global_state, "info", "cleanup done", None)
+        if not dry:
+            report(global_state, "info", "cleanup done", None)
 
 
 def report(
