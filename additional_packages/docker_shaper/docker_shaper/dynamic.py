@@ -815,13 +815,15 @@ async def maintain_docker_stats_tree(ui: DockerShaperUI) -> None:
         await asyncio.sleep(1)
 
     # add all containers known up to now - will be maintained later
+    ui.containers_node.remove_children()
     for container in ui.global_state.docker_state.containers.values():
         container_nodes[container.id] = ui.containers_node.add(f"{container}", data=container.id)
 
     # add all images
     pattern_issues = []
+    ui.images_node.remove_children()
     for img in ui.global_state.docker_state.images.values():
-        img_node = image_nodes[img.id] = ui.images_node.add(f"{img}", expand=True)
+        img_node = image_nodes[img.id] = ui.images_node.add(f"{img}", expand=False)
         for tag in img.tags:
             dep_age, reason = expiration_age_from_image_name(ui.removal_patterns, tag, 666)
             reason_markup = "bold red"
@@ -838,14 +840,17 @@ async def maintain_docker_stats_tree(ui: DockerShaperUI) -> None:
             )
 
     # add all volumes
+    ui.volumes_node.remove_children()
     for volume in ui.global_state.docker_state.volumes.values():
         volume_nodes[volume.Name] = ui.volumes_node.add(f"{volume}")
 
     # add all networks
+    ui.networks_node.remove_children()
     for network in ui.global_state.docker_state.networks.values():
         network_nodes[network.Id] = ui.networks_node.add(f"{network}")
 
     # add all pattern
+    ui.patterns_node.remove_children()
     for issue in pattern_issues:
         ui.patterns_node.add(f"[bold red]{issue}[/]'")
     for pattern, dep_age in ui.removal_patterns.items():
