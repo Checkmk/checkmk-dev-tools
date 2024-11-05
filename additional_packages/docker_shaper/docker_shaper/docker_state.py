@@ -1380,7 +1380,7 @@ def export_references(state: DockerState, filepath: Path) -> None:
 
 def import_references(state: DockerState, filepath: Path) -> None:
     """Load image reference information from disk and restore event horizon if not too old"""
-    with suppress(FileNotFoundError):
+    try:
         with open(filepath, encoding="utf-8") as eh_file:
             reference_data = json.load(eh_file)
             created = datetime.strptime(reference_data["created"], "%Y.%m.%d-%H.%M.%S")
@@ -1398,6 +1398,10 @@ def import_references(state: DockerState, filepath: Path) -> None:
                 state.event_horizon = reference_data["event_horizon"]
             else:
                 state.inform("warning", "event horizon too old to restore")
+    except FileNotFoundError:
+        pass
+    except json.JSONDecodeError as exc:
+        log().error("could not parse %r, error was %s", filepath, exc)
 
 
 async def main() -> None:
