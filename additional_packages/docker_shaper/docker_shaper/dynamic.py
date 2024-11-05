@@ -401,6 +401,8 @@ def expired_idents(global_state: GlobalState, image: Image, now) -> Iterable[tup
 
     # only remove a container directly if there are no tags we could monitor
     if not image.tags:
+        # FIXME - should also survive tag_default
+
         # todo: dangling images should be deleted
         # is_expired, *_, reason = check_expiration(
         #     global_state, image.short_id, now, created_timestamp
@@ -585,7 +587,7 @@ async def on_button_pressed(ui: DockerShaperUI, event: Button.Pressed) -> None:
         asyncio.ensure_future(trigger_cleanup(ui))
     elif event.button.id == "rotate_log_level":
         utils.increase_loglevel()
-        event.button.label = f"rotate log level ({logging.getLevelName(log().level)})"
+        event.button.label = f"log level: {logging.getLevelName(log().level)}"
         log().info("changed log level to %s", logging.getLevelName(log().level))
     elif event.button.id == "dump_trace":
         trace_log_file_path = BASE_DIR / "traceback.log"

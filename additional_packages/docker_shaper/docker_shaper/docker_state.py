@@ -845,6 +845,7 @@ async def watch_container(state: DockerState, container: DockerContainer) -> Non
     """Continuously monitor a distinct container over time"""
     name = "unknown"  # have a value for the `except` case
     normally_terminated = False
+    log().debug("watch container %s", container.id)
     try:
         container_info = state.containers[container.id]
         container_info.show = (
@@ -1282,6 +1283,7 @@ async def handle_docker_event(state: DockerState, event: DockerEvent) -> None:
         if event_action in {
             "pull",
         }:
+            # image pull only takes place when it's actually pulled
             await register_image(state, event_id)
             return
 
