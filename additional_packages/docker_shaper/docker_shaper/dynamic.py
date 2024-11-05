@@ -31,7 +31,9 @@ import psutil
 from aiodocker import Docker, DockerError
 from aiodocker.volumes import DockerVolume
 from rich.markup import escape as markup_escape
-from textual.widgets import Button, Label, Tree
+from textual.css.query import QueryType
+from textual.widget import Widget
+from textual.widgets import Button, Label, Switch, Tree
 from textual.widgets.tree import TreeNode
 from trickkiste.misc import age_str, date_str, dur_str, process_output
 
@@ -153,17 +155,23 @@ class DockerShaperUI(Protocol):
     networks_node: TreeNode
     volumes_node: TreeNode
     patterns_node: TreeNode
+    task_node: TreeNode
 
     lbl_event_horizon: Label
     lbl_runtime: Label
     lbl_switches: Label
     lbl_expiration: Label
+    lbl_stats1: Label
+    lbl_stats2: Label
     btn_clean: Button
 
     def exit(self): ...
     def update_status_bar(self, text: str): ...
     def update_node_labels(self) -> None: ...
     def write_message(self, text: str) -> None: ...
+    def query_one(
+        self, selector: str | type[QueryType], expect_type: type[QueryType] | None = None
+    ) -> QueryType | Widget: ...
 
 
 def log_file_name(cnt: Container) -> Path:
@@ -585,6 +593,14 @@ async def on_button_pressed(ui: DockerShaperUI, event: Button.Pressed) -> None:
         with trace_log_file_path.open("w", encoding="utf-8") as log_file:
             utils.dump_stacktrace(lambda msg: log_file.write(f"{msg}\n"), ui.write_message)
             ui.write_message(f"traceback also written to {trace_log_file_path}")
+    elif event.button.id == "dry_clean":
+        log().info("dry clean")
+        await asyncio.ensure_future(cleanup(ui.global_state, dry=True))
+
+
+async def on_switch_changed(ui: DockerShaperUI, event: Switch.Changed) -> None:
+    log().debug("Switch %r changed to %r", event.switch, event.switch.value)
+    ui.global_state.switches[event.switch.id] = event.switch.value
 
 
 async def update_dashboard(ui: DockerShaperUI) -> None:
@@ -607,6 +623,9 @@ async def update_dashboard(ui: DockerShaperUI) -> None:
             for key, value in ui.global_state.switches.items()
         )
     )
+    for key, value in ui.global_state.switches.items():
+        ui.query_one(f"#{key}", Switch).value = value
+
     ui.lbl_expiration.update(
         "\n".join(
             f"{key:.<20}: [bold cyan]{dur_str(value):>5s}[/]"
@@ -642,7 +661,15 @@ async def update_dashboard(ui: DockerShaperUI) -> None:
         f" │ docker-shaper v{__version__}"
         f" │ docker v{docker_version}"
     )
-    # ui.lbl_stats1.update()
+    ui.lbl_stats1.update(
+        "\n".join(
+            f"{key:.<20}: [bold cyan]{value}[/]"
+            for key, value in (
+                ("#containers / images", len(ui.global_state.containers)),
+                ("#images", len(ui.global_state.images)),
+            )
+        )
+    )
     await asyncio.sleep(3)
 
 
@@ -653,7 +680,7 @@ def update_node_labels(ui: DockerShaperUI) -> None:
     ui.patterns_node.set_label(f"Image-pattern ({len(ui.removal_patterns)})")
     ui.containers_node.set_label(
         f"Containers ({len(ui.global_state.docker_state.containers):2d})"
-        f" {' ' * 56} [bold]{total_cpu * 100:7.2f}% - {total_mem >> 20:6d}MiB[/]"
+        f" {' ' * 46} [bold]{total_cpu * 100:7.2f}% - {total_mem >> 20:6d}MiB[/]"
     )
     ui.images_node.set_label(f"Images ({len(ui.global_state.docker_state.images)})")
     ui.volumes_node.set_label(f"Volumes ({len(ui.global_state.docker_state.volumes)})")
@@ -718,19 +745,22 @@ async def on_changed_file(global_state: GlobalState, config_file_path: Path, cha
 
 def container_markup(container: Container) -> str:
     status_markups = {"running": "cyan bold"}
+    cnt_status = container.show.State.Status if container.show else ""
     image_str, status_str = (
         ("", "")
         if not container.show
         else (
             f" image:[bold]{short_id(container.show.Image)}[/]",
-            f" - [{status_markups.get(container.show.State.Status, 'grey53')}]"
+            f" - [{status_markups.get(cnt_status, 'grey53')}]"
             f"{container.show.State.Status:7s}[/]",
         )
     )
     return (
-        f"[bold]{container.short_id}[/] / {container.name:<26s}{image_str}{status_str}"
+        f"[bold]{container.short_id}[/] / {container.name:<26s}{image_str}"
         f" - {container.cpu_usage() * 100:7.2f}%"
         f" - {container.mem_usage() >> 20:6d}MiB"
+        f"{status_str}"
+        f" ({date_str(container.finished_at if cnt_status == 'exited' else container.started_at)})"
     )
 
 

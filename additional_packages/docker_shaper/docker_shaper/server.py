@@ -35,8 +35,8 @@ from apparat import fs_changes
 from textual import work
 from textual.app import ComposeResult
 from textual.binding import Binding
-from textual.containers import Grid, Vertical
-from textual.widgets import Button, Header, Label, Tree
+from textual.containers import Grid, Horizontal, Vertical
+from textual.widgets import Button, Header, Label, Switch, Tree
 from trickkiste.base_tui_app import TuiBaseApp
 
 from docker_shaper import dynamic
@@ -64,7 +64,16 @@ class DockerShaper(TuiBaseApp):
             grid-gutter:1;
             height: auto;
         }
-        Button  {width: 40;}
+        #clean {
+            width: 40;
+        }
+        Switch {
+            margin: 0 1;
+            padding: 0;
+            height: 1;
+            width: auto;
+            border:none;
+        }
         Tree {padding: 1;}
         Tree > .tree--guides {
             color: $success-darken-3;
@@ -76,6 +85,13 @@ class DockerShaper(TuiBaseApp):
         #button_grid {
             grid-size: 3;
             height: auto;
+            padding: 1 0 0 0;
+        }
+        #button_grid > Button {
+            width: auto;
+            margin: 0 2;
+            height: 1;
+            border: none;
         }
     """
 
@@ -159,12 +175,36 @@ class DockerShaper(TuiBaseApp):
                 yield self.lbl_stats1
                 yield self.lbl_stats2
             yield self.docker_stats_tree
-            with Grid(id="button_grid"):
-                yield Button(
-                    f"rotate log level ({logging.getLevelName(log().level)})", id="rotate_log_level"
+            with Horizontal(id="button_grid"):
+                yield Label("[red]FIDDLE  ")
+                yield Label("cleanup_container", classes="label")
+                yield Switch(
+                    id="remove_container",
+                    value=True,
+                    tooltip="Cleanup container",
                 )
-                yield Button("dump trace", id="dump_trace")
-                yield Button("quit (don't!)", id="quit")
+                yield Label("cleanup_images", classes="label")
+                yield Switch(
+                    id="remove_images",
+                    value=True,
+                    tooltip="Cleanup images",
+                )
+                yield Button(
+                    "dry clean",
+                    id="dry_clean",
+                    tooltip="Show what would be cleaned up",
+                )
+                yield Button(
+                    f"cycle log level ({logging.getLevelName(log().level)})",
+                    id="rotate_log_level",
+                    tooltip="Cycle log level (WARNING > INFO > DEBUG)",
+                )
+                yield Button("dump trace", id="dump_trace", tooltip="Print a stack trace")
+                yield Button(
+                    "quit (don't!)",
+                    id="quit",
+                    tooltip="Quit docker-shaper and lose the event horizen!!",
+                )
 
         yield from super().compose()
 
@@ -172,6 +212,13 @@ class DockerShaper(TuiBaseApp):
         """Generic button press handler"""
         try:
             await dynamic.on_button_pressed(self, event)
+        except Exception:  # pylint: disable=broad-except
+            dynamic.report(self.global_state)
+
+    async def on_switch_changed(self, event: Switch.Changed) -> None:
+        """Generic switch handler"""
+        try:
+            await dynamic.on_switch_changed(self, event)
         except Exception:  # pylint: disable=broad-except
             dynamic.report(self.global_state)
 
