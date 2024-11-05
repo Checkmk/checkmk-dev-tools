@@ -7,6 +7,7 @@
 # pylint: disable=too-many-branches,too-many-return-statements
 # pylint: disable=too-many-lines
 # pylint: disable=too-many-arguments
+# pylint: disable=too-many-positional-arguments
 # pylint: disable=fixme
 # pylint: disable=import-error  # no clue why..
 
@@ -675,8 +676,9 @@ class DockerState:
                 assert (
                     not _raw_e.get("from") or _raw_e.get("from") == event.Actor.Attributes["image"]
                 )
-
-                if all(
+                # store Docker events rather than handling them until all crawlers finished
+                # at least once
+                if not all(
                     (
                         self.containers_crawled,
                         self.images_crawled,
@@ -684,10 +686,6 @@ class DockerState:
                         self.networks_crawled,
                     )
                 ):
-                    while event_buffer:
-                        await handle_docker_event(self, event_buffer.pop(0))
-                    await handle_docker_event(self, event)
-                else:
                     log().info(
                         "postpone event (C: %s, I: %s, V: %s, N: %s)",
                         self.containers_crawled,
@@ -696,6 +694,13 @@ class DockerState:
                         self.networks_crawled,
                     )
                     event_buffer.append(event)
+                    continue
+
+                # eat up events stored for later (has no effect, once it's empty)
+                while event_buffer:
+                    await handle_docker_event(self, event_buffer.pop(0))
+
+                await handle_docker_event(self, event)
 
             except Exception as exc:  # pylint: disable=broad-except
                 log().error("Error while handling event: %s", str(_raw_e))
