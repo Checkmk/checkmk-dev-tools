@@ -24,7 +24,7 @@ from datetime import datetime
 from itertools import chain
 from pathlib import Path
 from subprocess import check_output
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 from jenkins import Jenkins
 from trickkiste.logging_helper import apply_common_logging_cli_args, setup_logging
@@ -50,6 +50,7 @@ from .utils import Fatal
 # Todo: decent error message when providing wrong path
 
 PathHashes = Mapping[str, str]
+shared_build_info: asyncio.Queue[str] = asyncio.Queue(maxsize=1)
 
 
 def parse_args() -> Args:
@@ -645,6 +646,7 @@ async def _fn_await_and_handle_build(args: Args) -> None:
             jenkins_client=jenkins_client,
             check_result=True,
             path_hashes=None,
+            allow_to_cancel=False,
         )
         print(
             json.dumps(
@@ -819,6 +821,7 @@ async def await_build(
     jenkins_client: AugmentedJenkinsClient,
     check_result: bool,
     path_hashes: None | PathHashes,
+    allow_to_cancel: bool = True,
 ) -> Build:
     """Awaits a Jenkins job build specified by @job_full_path and @build_number and returns the
     awaited Build object. Unexpected build failures or non-matching path hashes will be raised on.
@@ -826,6 +829,8 @@ async def await_build(
     current_build_info = await jenkins_client.build_info(job_full_path, build_number)
     if not current_build_info.completed:
         log().info("build #%s still in progress (%s)", build_number, current_build_info.url)
+        if allow_to_cancel:
+            await shared_build_info.put(json.dumps({"path": job_full_path, "number": build_number}))
         while True:
             if not current_build_info.completed:
                 log().debug("build %s in progress", build_number)
@@ -851,6 +856,45 @@ async def await_build(
     return current_build_info
 
 
+async def stop_build(args: Args, ongoing_build_info: Mapping[str, str | int]) -> None:
+    """Convenience function stopping a running or queued build"""
+    job_name = ongoing_build_info["path"]
+    job_number = ongoing_build_info["number"]
+    assert isinstance(job_name, str)
+    assert isinstance(job_number, int)
+
+    log().info("stop build %d of %s", job_number, job_name)
+
+    async with AugmentedJenkinsClient(
+        **extract_credentials(args.credentials), timeout=args.timeout
+    ) as jenkins_client:
+        jenkins_client.client.stop_build(name=job_name, number=job_number)
+
+
+def query_yes_no(
+    question: str = "Continue?", default: None | Literal["yes", "y", "ye", "no", "n"] = "no"
+) -> bool:
+    """Ask a yes/no question via raw_input() and return their answer."""
+    valid = {"yes": True, "y": True, "ye": True, "no": False, "n": False}
+    if default is None:
+        prompt = " [y/n] "
+    elif default == "yes":
+        prompt = " [Y/n] "
+    elif default == "no":
+        prompt = " [y/N] "
+    else:
+        raise ValueError(f"invalid default answer: '{default}'")
+
+    while True:
+        sys.stdout.write(question + prompt)
+        choice = input().lower()
+        if default is not None and choice == "":
+            return valid[default]
+        if choice in valid:
+            return valid[choice]
+        sys.stdout.write("Please respond with 'yes' or 'no' (or 'y' or 'n').\n")
+
+
 def main() -> None:
     """Entry point for everything else"""
     try:
@@ -866,6 +910,12 @@ def main() -> None:
 
         log().debug("Parsed args: %s", args)
         asyncio.run(args.func(args))
+    except KeyboardInterrupt:
+        if not shared_build_info.empty():
+            if query_yes_no(question="Cancel ongoing build?"):
+                ongoing_build_info = json.loads(shared_build_info.get_nowait())
+                asyncio.run(stop_build(args=args, ongoing_build_info=ongoing_build_info))
+                log().debug("Stopping ongoing job")
     except Fatal as exc:
         print(exc, file=sys.stderr)
         raise SystemExit(-1) from exc

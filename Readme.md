@@ -85,6 +85,8 @@ The returned result is a JSON might look like
 
 If there are no more constraints than a build has been completed successfully, `fetch` downloads a given jobs artifact, just like with `download` but for the latest build instead of a specified build number.
 
+Pressing `CTRL+C` while the script is running will ask for confirmation, default answer is `no` and cancel the build.
+
 ```sh
 ci-artifacts --log-level debug \
     fetch checkmk/master/winagt-build
