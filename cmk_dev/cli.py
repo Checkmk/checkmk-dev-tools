@@ -21,7 +21,7 @@ import cmk_dev.cpumon
 # import cmk_dev.procmon
 import cmk_dev.pycinfo
 
-__version__ = "0.1.67"  # It MUST match the version in pyproject.toml file
+__version__ = "0.1.68"  # It MUST match the version in pyproject.toml file
 
 
 def parse_args(argv: Union[Sequence[str], None] = None) -> Args:

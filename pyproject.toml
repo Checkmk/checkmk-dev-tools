@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "checkmk-dev-tools"
-version = "0.1.67"
+version = "0.1.68"
 description = "Checkmk DevOps tools"
 authors = ["Frans Fürst <frans.fuerst@checkmk.com>"]
 repository = "https://github.com/Checkmk/checkmk-dev-tools"
@@ -30,7 +30,7 @@ pyyaml = "^6.0"
 pydantic = "^2"
 rich = "*"
 
-trickkiste = "^0.1.4"
+trickkiste = "^0.2.1"
 # trickkiste  = {path = "../../_HOME/trickkiste", develop = true}
 
 # actual dependencies, but kept back
