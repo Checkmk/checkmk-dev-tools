@@ -30,6 +30,7 @@ from jenkins import Jenkins
 from trickkiste.logging_helper import apply_common_logging_cli_args, setup_logging
 from trickkiste.misc import compact_dict, cwd, md5from, split_params
 
+from . import __version__
 from .jenkins_utils import (
     AugmentedJenkinsClient,
     Build,
@@ -62,6 +63,10 @@ def parse_args() -> Args:
 
     parser.set_defaults(func=lambda *_: parser.print_usage())
     subparsers = parser.add_subparsers(help="available commands", metavar="CMD")
+
+    parser.add_argument(
+        "--version", action="version", version="{version}".format(version=__version__)
+    )
 
     parser_info = subparsers.add_parser("info")
     parser_info.set_defaults(func=_fn_info)
