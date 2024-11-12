@@ -39,15 +39,10 @@ trickkiste = "^0.2.1"
 
 # actual dependencies, but kept back
 [tool.poetry.group.dev.dependencies]
-textual = "^0.65.1" # docker_shaper/*
 aiofiles = "^23.2.1"  # procmon.py
 ttrace = "^0.1.13"  # procmon.py
-apparat = "^0.2.0"  # additional_packages/*
-psutil = "^6.1.0"  # additional_packages/*
-aiodocker = "^0.23.0"  # additional_packages/*
 
 # [tool.poetry.group.dev.dependencies]
-flake8 = "*"
 pytest = "*"
 mypy = "*"
 ruff = "^0.6"
@@ -66,7 +61,6 @@ pre-commit = "*"
 # see https://pypi.org/project/poetry-bumpversion
 [tool.poetry_bumpversion.file."cmk_dev/__init__.py"]
 [tool.poetry_bumpversion.file."cmk_dev/cli.py"]
-
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]
@@ -95,9 +89,8 @@ ignore = [
     "PLR0915", # Too many statements
 ]
 
-[tool.ruff.lint.per-file-ignores]
-"additional_packages/docker_shaper/docker_shaper/headless_examples/docker_prune.py" = ["E731"]
-
+# [tool.ruff.lint.per-file-ignores]
+# "filename" = ["E123"]
 
 [tool.mypy]
 python_version = "3.11"
@@ -113,7 +106,6 @@ mypy_path="typeshed"
 exclude = [
     # folders
     '\.venv',
-    'additional_packages/docker_shaper',
     # files
     'cmk_dev/procmon\.py',
 ]

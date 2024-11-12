@@ -34,7 +34,6 @@ repos:
             types: [file, python]
             exclude: (?x)^(
                 \.venv|
-                additional_packages/docker_shaper/.*|
                 cmk_dev/procmon\.py)$
           - id: check-yaml-linting
             name: Check YAML Linting
@@ -47,8 +46,7 @@ repos:
             language: script
             types: [file, python]
             exclude: (?x)^(
-                cmk-dev_dev|
-                additional_packages/docker_shaper/docker_shaper/headless_examples/dockermon\.py)$
+                cmk-dev_dev)$
             verbose: true
 
             #          - id: absolute-imports
