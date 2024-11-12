@@ -2,7 +2,12 @@
 name = "checkmk-dev-tools"
 version = "0.1.68"
 description = "Checkmk DevOps tools"
-authors = ["Frans Fürst <frans.fuerst@checkmk.com>"]
+authors = [
+  "Frans Fürst <frans.fuerst@checkmk.com>",
+  "Jonas Scharpf <jonas.scharpf@checkmk.com>",
+  "Niko Wenselowski <niko.wenselowski@checkmk.com>",
+  "Timotheus Bachinger <timotheus.bachinger@checkmk.com>"
+]
 repository = "https://github.com/Checkmk/checkmk-dev-tools"
 readme = "Readme.md"
 packages = [
