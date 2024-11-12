@@ -63,7 +63,7 @@ class Day:
         minute = timeofday.hour * 60 + timeofday.minute
         self.minutes.setdefault(minute, set()).add(filepath)
 
-        if timeofday.hour < 4 or timeofday.hour > 22:
+        if timeofday.hour < 4 or timeofday.hour > 22:  # noqa: PLR2004
             return False
 
         if self.begin and self.end and self.begin < timeofday < self.end:
@@ -124,10 +124,9 @@ def activity_from_fs(start_dir: Path) -> None:
                 if show_progress:
                     if (loga := math.log(filecount, 2)) == int(loga):
                         print(f"{filecount:8d} files taken into account")
-                else:
-                    if filecount % 100 == 0 and today == datetime.now().date():
-                        rich.print(dates[today].activity_bar(204), end="")
-                        print(filepath)
+                elif filecount % 100 == 0 and today == datetime.now().date():
+                    rich.print(dates[today].activity_bar(204), end="")
+                    print(filepath)
 
     hint_bar = "." * (Console().options.max_width - 30 - 1)
     for h in range(23 - 5):

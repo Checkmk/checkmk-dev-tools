@@ -430,15 +430,14 @@ def meets_constraints(
                 path_hashes,
             )
             result = False
-    else:
-        if not path_hashes_match(expected_path_hashes, path_hashes):
-            log().debug(
-                "build #%s has been started with mismatching expected path hashes: %s != %s",
-                build.number,
-                expected_path_hashes,
-                path_hashes,
-            )
-            result = False
+    elif not path_hashes_match(expected_path_hashes, path_hashes):
+        log().debug(
+            "build #%s has been started with mismatching expected path hashes: %s != %s",
+            build.number,
+            expected_path_hashes,
+            path_hashes,
+        )
+        result = False
 
     if time_constraints is None:
         pass
@@ -906,7 +905,13 @@ def main() -> None:
             os.environ["FORCE_COLOR"] = "true"
             os.environ["COLUMNS"] = "200"
 
-        setup_logging(log(), args.log_level, show_time=False, show_name=False, show_funcname=False)
+        setup_logging(
+            logger=log(),
+            level=args.log_level,
+            show_time=False,
+            show_name=False,
+            show_funcname=False,
+        )
 
         log().debug("Parsed args: %s", args)
         asyncio.run(args.func(args))

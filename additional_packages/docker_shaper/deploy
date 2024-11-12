@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
 
-REMOTE=( "${1:-build-fra-001}" )
+REMOTE="${1:-build-fra-001}"
 
 cd "$(dirname "$(realpath "$0")")" || exit 1
-echo "REMOTE: |$REMOTE|"
+echo "REMOTE: |${REMOTE}|"
 
 find . "$HOME/.docker_shaper" \
     \( -name \*.pyc -o -name __pycache__  -o -name .mypy_cache \) \
-    -exec rm -rf {} \; 
+    -exec rm -rf {} \;
 
 # copy code
 scp -r docker_shaper/ "root@$REMOTE":/home/jenkins/.local/lib/python3.10/site-packages/
 
 # copy config
-scp -r $HOME/.docker_shaper/*.py "root@$REMOTE":/home/jenkins/.docker_shaper/
+scp -r "${HOME}"/.docker_shaper/*.py "root@$REMOTE":/home/jenkins/.docker_shaper/
 
 ssh -t "root@$REMOTE" \
     "chown -R jenkins:jenkins \

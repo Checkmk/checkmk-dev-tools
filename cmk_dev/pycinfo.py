@@ -47,7 +47,7 @@ except ModuleNotFoundError:
 def view_pyc_file(path: Path, strip: str = "", verbose: bool = False) -> None:
     """Read and display a content of the Python`s bytecode in a pyc-file."""
 
-    assert sys.version_info.major == 3 and sys.version_info.minor >= 7
+    assert sys.version_info.major == 3 and sys.version_info.minor >= 7  # noqa: PLR2004
     with path.open("rb") as file:
         _magic = binascii.hexlify(file.read(4)).decode("utf-8")
         timestamp = None
@@ -137,13 +137,13 @@ def view_pyc_file(path: Path, strip: str = "", verbose: bool = False) -> None:
     else:
         hash_str = "----------------"
 
-    tag_level = TAG_NONE if level < 1 else TAG_WARNING if level < 2 else TAG_ERROR
+    tag_level = TAG_NONE if level < 1 else TAG_WARNING if level < 2 else TAG_ERROR  # noqa: PLR2004
 
     # assert path.absolute().as_posix().startswith(strip)
     pyc_path_str = path.absolute().as_posix()[len(strip) :] if strip else path.as_posix()
     print(
         f"{pyc_path_str:110s}"
-        f" | {tag_level}{'OK' if level < 1 else 'WARN' if level < 2 else 'ERROR':5s}{TAG_CLOSE}"
+        f" | {tag_level}{'OK' if level < 1 else 'WARN' if level < 2 else 'ERROR':5s}{TAG_CLOSE}"  # noqa: PLR2004
         # f" | magic: {magic}"
         # f" | bitfield: {bit_field}"
         f" | timestamp: {tag_timestamp}{timestamp_str}{TAG_CLOSE}"

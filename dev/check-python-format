@@ -10,5 +10,4 @@ ARGS=( "${@:-.}" )
 # run from root of current project
 cd "$(dirname "$(dirname "$(realpath "$0")")")" || exit 1
 
-"dev/run-in-venv" python -m isort --check "${ARGS[@]}"
-"dev/run-in-venv" python -m black --check "${ARGS[@]}"
+"dev/run-in-venv" python -m ruff check "${ARGS[@]}"

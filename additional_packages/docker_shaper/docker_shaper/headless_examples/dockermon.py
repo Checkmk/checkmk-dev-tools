@@ -32,14 +32,13 @@ from contextlib import suppress
 from pathlib import Path
 from typing import cast
 
+from docker_shaper import docker_state, dynamic, utils
+from docker_shaper.dynamic import Container, ImageIdent, Network, Volume, short_id
 from textual import work
 from textual.app import ComposeResult
 from textual.widgets import Tree
 from trickkiste.base_tui_app import TuiBaseApp
 from trickkiste.misc import date_str, dur_str
-
-from docker_shaper import docker_state, dynamic, utils
-from docker_shaper.dynamic import Container, ImageIdent, Network, Volume, short_id
 
 
 def log() -> logging.Logger:

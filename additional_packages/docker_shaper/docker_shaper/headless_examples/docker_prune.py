@@ -29,15 +29,14 @@ from contextlib import suppress
 from dataclasses import dataclass
 from typing import ClassVar
 
-from aiodocker import Docker, DockerError
-from aiodocker.images import DockerImages
+from aiodocker import Docker
 
 
 class Deserializable:
     IgnoreKeys: ClassVar[set[str]] = set()
 
     @staticmethod
-    def _from_dict(cls, data):
+    def _from_dict(cls, data):  # noqa: PLW0211
         """translate"""
         if hasattr(cls, "__dataclass_fields__"):
             if undefined_keys := cls.__annotations__.keys() - data.keys():
@@ -231,10 +230,10 @@ async def main() -> None:
             images = await docker_client.images.list(all=True)
             print(f"Images: {len(images)}")
             for image in map(Image.from_dict, images):
-                inspect = ImageInspect.from_dict(await docker_client.images.inspect(image.Id))
-                history = list(
-                    map(ImageHistory.from_dict, await docker_client.images.history(image.Id))
-                )
+                # inspect = ImageInspect.from_dict(await docker_client.images.inspect(image.Id))
+                # history = list(
+                #     map(ImageHistory.from_dict, await docker_client.images.history(image.Id))
+                # )
                 print(f"  {image}")
 
             volumes = await docker_client.volumes.list()

@@ -18,12 +18,12 @@ from configparser import ConfigParser
 from pathlib import Path
 from typing import Any, Literal, Union, cast
 
-from pydantic import BaseModel, Extra, Json, model_validator
+import jenkins
+from jenkins import Jenkins
+from pydantic import BaseModel, Json, model_validator
 from trickkiste.misc import asyncify, compact_dict, date_str, dur_str, split_params
 
-import jenkins
 from cmk_dev.utils import Fatal
-from jenkins import Jenkins
 
 GenMapVal = Union[None, bool, str, float, int, "GenMapArray", "GenMap"]
 GenMapArray = Sequence[GenMapVal]
@@ -105,7 +105,7 @@ class Build(SimpleBuild):
     def correct(cls, obj: Json[dict[str, Any]]) -> Json[dict[str, Any]]:
         """Refactor init to match our excpectations"""
 
-        if not obj.get("result") in {None, "FAILURE", "SUCCESS", "ABORTED", "UNSTABLE"}:
+        if obj.get("result") not in {None, "FAILURE", "SUCCESS", "ABORTED", "UNSTABLE"}:
             log().error("Build result has unexpected value %s", obj.get("result"))
 
         return {
@@ -571,7 +571,9 @@ class AugmentedJenkinsClient:
                 (
                     job
                     if isinstance(job, str)
-                    else job.path if isinstance(job, Job) else "/".join(job)
+                    else job.path
+                    if isinstance(job, Job)
+                    else "/".join(job)
                 ),
                 build_number,
             )
@@ -671,9 +673,11 @@ async def main() -> None:  # pylint: disable=too-many-locals
             }, job_info.color
 
             print(f"{job_info}, url={job_info.url}")
-            last_successful, first_failing, last_build = (
-                await jenkins_client.failing_transition_numbers(job_info)
-            )
+            (
+                last_successful,
+                first_failing,
+                last_build,
+            ) = await jenkins_client.failing_transition_numbers(job_info)
             assert bool(first_failing) is not bool(last_successful == last_build) or last_build == 1
             if first_failing:
                 print(last_successful, first_failing, last_build)

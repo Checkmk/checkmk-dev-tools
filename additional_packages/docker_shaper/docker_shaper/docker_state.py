@@ -636,7 +636,7 @@ class DockerState:
                     self.run_crawl_volumes(),
                     self.run_crawl_networks(),
                 )
-                self.docker_client = None
+                self.docker_client = None  # noqa: PLW2901
         except Exception:  # pylint: disable=broad-except
             log().exception("in DockerState.run()")
 
@@ -909,7 +909,10 @@ def update_inform_trigger(
         or (new_show.status != old_show.status)
         or (
             (count % 10 == 0)
-            and (abs(last_cpu_usage - cpu_usage) > 0.2 or abs(last_mem_usage - mem_usage) > 1 << 20)
+            and (
+                abs(last_cpu_usage - cpu_usage) > 0.2  # noqa: PLR2004
+                or abs(last_mem_usage - mem_usage) > 1 << 20  # noqa: PLR2004
+            )
         )
     )
 

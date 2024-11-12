@@ -160,10 +160,17 @@ class DockerShaperUI(Protocol):
     lbl_expiration: Label
     btn_clean: Button
 
-    def exit(self): ...
-    def update_status_bar(self, text: str): ...
-    def update_node_labels(self) -> None: ...
-    def write_message(self, text: str) -> None: ...
+    def exit(self):
+        ...
+
+    def update_status_bar(self, text: str):
+        ...
+
+    def update_node_labels(self) -> None:
+        ...
+
+    def write_message(self, text: str) -> None:
+        ...
 
 
 def log_file_name(cnt: Container) -> Path:
@@ -346,7 +353,7 @@ def jobname_from(binds):
 def label_filter(label_values):
     return ",".join(
         w.replace("artifacts.lan.tribe29.com:4000", "A")
-        for key, l in label_values.items()
+        for key, label in label_values.items()
         if key
         in (
             "org.tribe29.base_image",
@@ -355,8 +362,8 @@ def label_filter(label_values):
             "org.tribe29.cmk_hash",
             "org.tribe29.cmk_version",
         )
-        for w in l.split()
-        if not (w.startswith("sha256") or len(w) == 64)
+        for w in label.split()
+        if not (w.startswith("sha256") or len(w) == 64)  # noqa: PLR2004
     )
 
 

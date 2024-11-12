@@ -17,7 +17,5 @@ cd "$(dirname "$(dirname "$(realpath "$0")")")"
 
 dev/check-python-doctests "$@"
 dev/check-python-format "$@"
-dev/check-python-linting "$@"
-#dev/check-python-typing $@
 dev/check-yaml-linting "$@"
 dev/check-shellscripts "$@"

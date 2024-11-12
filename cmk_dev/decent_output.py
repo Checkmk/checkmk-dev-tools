@@ -16,9 +16,8 @@ E.g. `decent-output 2 docker build .`
 
 import signal
 import sys
-from asyncio import Queue, StreamReader
+from asyncio import Queue, StreamReader, create_subprocess_exec, gather, run, wait_for
 from asyncio import TimeoutError as AsyncTimeoutError
-from asyncio import create_subprocess_exec, gather, run, wait_for
 from asyncio.subprocess import PIPE, Process
 from collections.abc import Sequence
 from contextlib import suppress
