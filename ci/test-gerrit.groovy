@@ -30,34 +30,24 @@ def main() {
         }
 
         stage("Validate entrypoints") {
-            withCredentials(
-                bindings: [
-                    usernamePassword(
-                        credentialsId: 'jenkins-api-token',
-                        usernameVariable: 'JJB_USER',
-                        passwordVariable: 'JJB_PASSWORD'
-                    )
-                ]
-            ) {
-                docker_image.inside(docker_args) {
-                    sh(label: "run JJB", script: """
-                        set -o pipefail
-                        poetry --version
+            docker_image.inside(docker_args) {
+                sh(label: "run entrypoints", script: """
+                    set -o pipefail
+                    poetry --version
 
-                        poetry run poetry run activity-from-fs --help
-                        poetry run binreplace --help
-                        poetry run check-rpath --help
-                        poetry run ci-artifacts --help
-                        poetry run cmk-dev --help
-                        poetry run cpumon --help
-                        poetry run last-access --help
+                    poetry run activity-from-fs --help
+                    poetry run binreplace --help
+                    poetry run check-rpath --help
+                    poetry run ci-artifacts --help
+                    poetry run cmk-dev --help
+                    poetry run cpumon --help
+                    poetry run last-access --help
 
-                        # scripts without argparser or some other reason
-                        # poetry run decent-output --help
-                        # poetry run procmon --help
-                        # poetry run pycinfo --help
-                    """);
-                }
+                    # scripts without argparser or some other reason
+                    # poetry run decent-output --help
+                    # poetry run procmon --help
+                    # poetry run pycinfo --help
+                """);
             }
         }
     }
