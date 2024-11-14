@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "checkmk-dev-tools"
-version = "0.2.1"
+version = "0.0.0" # will-be-updated-automatically
 description = "Checkmk DevOps tools"
 authors = [
   "Frans Fürst <frans.fuerst@checkmk.com>",
@@ -49,22 +49,27 @@ ruff = "^0.6"
 twine = "*"
 yamllint = "*"
 pytest-cov = "*"
+snippets2changelog = "^1.6.0"
+poetry-dynamic-versioning = "^1.3.0"
 types-pyyaml = "*"
 types-requests = "*"
 types-aiofiles = "*"
 pre-commit = "*"
 
-# install "poetry-bumpversion" to easily bump package version later
-# > poetry self add poetry-bumpversion
-# > poetry version patch --dry-run
+# https://github.com/mtkennerly/poetry-dynamic-versioning/tree/v1.3.0
+# > poetry self add "poetry-dynamic-versioning[plugin]"
 # it is not enough to add it to the projects pyproject.toml file
-# see https://pypi.org/project/poetry-bumpversion
-[tool.poetry_bumpversion.file."cmk_dev/__init__.py"]
-[tool.poetry_bumpversion.file."cmk_dev/cli.py"]
+[tool.poetry-dynamic-versioning]
+enable = true
+format-jinja-imports = [
+  { module = "subprocess", item = "check_output" },
+]
+format-jinja = """{{ check_output(["python3", "-c", "from pathlib import Path; exec(Path('cmk_dev/version.py').read_text()); print(__version__)"]).decode().strip() }}"""
+# format-jinja = "{{ env.get('PROJECT_VERSION') }}"
 
 [build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning>=1.0.0,<2.0.0"]
+build-backend = "poetry_dynamic_versioning.backend"
 
 [tool.ruff]
 target-version = "py311"
