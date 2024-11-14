@@ -253,4 +253,5 @@ git commit -m "cmk-dev-tools: bump version, update dependencies"
 ```sh
 poetry publish --build [--repository checkmk_dev_tools]
 git tag -a v<VERSION> <MERGE_COMMIT> -m "v<VERSION>"
+git push --tags
 ```
