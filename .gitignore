@@ -9,3 +9,8 @@ __pycache__
 .mypy_cache
 idea
 *.wpu
+
+# automatically updated by snippets2changelog and changelog2version
+changelog.md
+cmk_dev/version.py
+version.json

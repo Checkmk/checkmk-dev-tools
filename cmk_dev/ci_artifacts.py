@@ -30,7 +30,6 @@ from jenkins import Jenkins
 from trickkiste.logging_helper import apply_common_logging_cli_args, setup_logging
 from trickkiste.misc import compact_dict, cwd, md5from, split_params
 
-from . import __version__
 from .jenkins_utils import (
     AugmentedJenkinsClient,
     Build,
@@ -45,6 +44,7 @@ from .jenkins_utils import (
     params_from,
 )
 from .utils import Fatal
+from .version import __version__
 
 # Todo: warn about missing parameters
 # Todo: default to `$REPO/package_download` rather than `out`

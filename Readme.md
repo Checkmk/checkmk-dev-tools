@@ -221,18 +221,60 @@ poetry self add poetry-bumpversion
 
 ### Workflow
 
+Create a new changelog snippet. If no new snippets is found on a merged change
+no new release will be built and published.
+
+If the change is based on a Jira ticket, use the Jira ticket name as snippet
+name otherwise use a unique name.
+
+```sh
+poetry run \
+    changelog-generator \
+    create .snippets/CMK-20150.md
+```
+
+After committing the snippet a changelog can be generated locally. For CI usage
+the `--in-place` flag is recommended to use as it will update the existing
+changelog with the collected snippets. For local usage remember to reset the
+changelog file before a second run, as the version would be updated recursively
+due to the way the changelog generator is working. It extracts the latest
+version from the changelog file and puts the found snippets on top.
+
+Future changes to the changelog are ignored by
+
+```sh
+git update-index --assume-unchanged changelog.md
+```
+
+```sh
+poetry run \
+    changelog-generator \
+    changelog changelog.md \
+    --snippets=.snippets \
+    --in-place \
+    --version-reference="https://review.lan.tribe29.com/gitweb?p=checkmk_dev_tools.git;a=tag;h=refs/tags/"
+```
+
+Update the version of the project in all required files by calling
+
+```sh
+poetry run \
+    changelog2version \
+    --changelog_file changelog.md \
+    --version_file cmk_dev/version.py \
+    --version_file_type py \
+    --additional_version_info="-rc42+$(git rev-parse HEAD)" \
+    --print \
+    | jq -r .info.version
+```
+
 * (once and only for publishing to PyPi) Get token on PyPi.org
 * (once and only for publishing to PyPi) `poetry config pypi-token.pypi pypi-<LONG-STRING>`
   (will write to `~/.config/pypoetry/auth.toml`)
 * modify and check commits via `pre-commit run --all-files`
 * after work is done locally:
-  - adapt version in `pyproject.toml` with
-```sh
-# see section Setup
-# poetry self add poetry-bumpversion
-poetry version [patch, minor, major] [--dry-run]
-```
-  - may update dependencies before/with a new release
+
+  - update dependencies before/with a new release
 ```sh
 poetry lock
 ```

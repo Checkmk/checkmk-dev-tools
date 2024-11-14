@@ -1,21 +1,17 @@
 #!groovy
 
-/// file: test-gerrit.groovy
+/// file: release.groovy
 
 def main() {
     def image_name = "python-curl-poetry";
     def dockerfile = "ci/Dockerfile";
     def docker_args = "${mount_reference_repo_dir}";
-
-    if ("${env.GERRIT_EVENT_TYPE}" == "change-merged") {
-        print("This is a merged change event run");
-    }
+    def parsed_version = "";
+    def publish_package = false;
 
     currentBuild.description += (
         """
-        |Reason:            ${env.GERRIT_EVENT_TYPE}<br>
-        |Commit SHA:        ${env.GERRIT_PATCHSET_REVISION}<br>
-        |Patchset Number:   ${env.GERRIT_PATCHSET_NUMBER}<br>
+        |Create an automatic release<br>
         |""".stripMargin());
 
     dir("${checkout_dir}") {
@@ -26,28 +22,6 @@ def main() {
                 sh(label: "Pre-commit and run hooks", script: """
                     dev/run-in-venv \
                         pre-commit run --all-files
-                """);
-            }
-        }
-
-        stage("Validate entrypoints") {
-            docker_image.inside(docker_args) {
-                sh(label: "run entrypoints", script: """
-                    set -o pipefail
-                    poetry --version
-
-                    poetry run activity-from-fs --help
-                    poetry run binreplace --help
-                    poetry run check-rpath --help
-                    poetry run ci-artifacts --help
-                    poetry run cmk-dev --help
-                    poetry run cpumon --help
-                    poetry run last-access --help
-
-                    # scripts without argparser or some other reason
-                    # poetry run decent-output --help
-                    # poetry run procmon --help
-                    # poetry run pycinfo --help
                 """);
             }
         }
@@ -70,7 +44,6 @@ def main() {
                         --changelog_file changelog.md \
                         --version_file cmk_dev/version.py \
                         --version_file_type py \
-                        --additional_version_info="-rc${env.GERRIT_PATCHSET_NUMBER}" \
                         --print \
                         --output version.json
                 """);
@@ -89,16 +62,16 @@ def main() {
                             export GIT_COMMITTER_NAME="Checkmk release system"
                             export GIT_COMMITTER_EMAIL="noreply@checkmk.com"
                             git fetch --prune --prune-tags
-                            git tag -a v\$CHANGELOG_VERSION-rc${env.GERRIT_PATCHSET_NUMBER} -m "v\$CHANGELOG_VERSION-rc${env.GERRIT_PATCHSET_NUMBER}"
+                            git tag -a v\$CHANGELOG_VERSION -m "v\$CHANGELOG_VERSION"
                             git tag --list
-                            git push origin tag v\$CHANGELOG_VERSION-rc${env.GERRIT_PATCHSET_NUMBER}
+                            git push origin tag v\$CHANGELOG_VERSION
                         """);
                     }
                 }
             }
         }
 
-        stage("Build and publish test package") {
+        stage("Build and publish package") {
             docker_image.inside(docker_args) {
                 sh(label: "build package", script: """
                     # see comment in pyproject.toml
@@ -111,12 +84,11 @@ def main() {
                 """);
 
                 withCredentials([
-                    string(credentialsId: 'TEST_PYPI_API_TOKEN_CMK_DEV_TOOLS_ONLY', variable: 'TEST_PYPI_API_TOKEN_CMK_DEV_TOOLS_ONLY')
+                    string(credentialsId: 'PYPI_API_TOKEN_CMK_DEV_TOOLS_ONLY', variable: 'PYPI_API_TOKEN_CMK_DEV_TOOLS_ONLY')
                 ]) {
                     sh(label: "publish package", script: """
-                        poetry config repositories.testpypi https://test.pypi.org/legacy/
-                        poetry config pypi-token.testpypi "${TEST_PYPI_API_TOKEN_CMK_DEV_TOOLS_ONLY}"
-                        poetry publish --repository testpypi --skip-existing
+                        poetry config pypi-token.pypi ${PYPI_API_TOKEN_CMK_DEV_TOOLS_ONLY}
+                        poetry publish --skip-existing
                     """);
                 }
             }
