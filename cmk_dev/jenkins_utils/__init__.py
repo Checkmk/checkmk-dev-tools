@@ -457,10 +457,10 @@ class AugmentedJenkinsClient:
                 if jtype == "Folder":
                     yield node_path, Folder.model_validate(raw_job)
                     yield from recursive_traverse(raw_job.get("jobs", []), node_path)
-                elif jtype in {"WorkflowJob", "FreeStyleProject"}:
+                elif jtype in {"WorkflowJob", "FreeStyleProject", "MatrixProject"}:
                     yield node_path, SimpleJob.model_validate(raw_job)
                 else:
-                    raise RuntimeError(f"unknown job type {jtype}")
+                    log().error("unknown job type %r", jtype)
 
         log().info("fetch existing jobs..")
         all_jobs = cast(Iterable[dict[str, Any]], await self.raw_jobs())
