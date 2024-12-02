@@ -392,9 +392,22 @@ class AugmentedJenkinsClient:
             timeout=timeout if timeout is not None else 60,
         )
 
+    def __enter__(self) -> "AugmentedJenkinsClient":
+        """Checks connection by validating sync_whoami()"""
+        return self._check_connection()
+
+    def __exit__(self, *args: object) -> None:
+        pass
+
     async def __aenter__(self) -> "AugmentedJenkinsClient":
-        """Checks connection by validating whoami()"""
-        whoami = (await self.whoami())["id"]
+        """Checks connection by validating sync_whoami()"""
+        return self._check_connection()
+
+    async def __aexit__(self, *args: object) -> None:
+        pass
+
+    def _check_connection(self) -> "AugmentedJenkinsClient":
+        whoami = (self.sync_whoami())["id"]
         username = self.client.auth and self.client.auth.username.decode() or ""
         if not whoami == username:
             log().warning(
@@ -402,12 +415,13 @@ class AugmentedJenkinsClient:
             )
         return self
 
-    async def __aexit__(self, *args: object) -> None:
-        pass
-
     @asyncify
     def whoami(self) -> Mapping[str, str]:
         """Async wrapper for whoami"""
+        return self.sync_whoami()
+
+    def sync_whoami(self) -> Mapping[str, str]:
+        """Synchronous wrapper for whoami"""
         # First API call gives us
         #   ERROR    │ requests_kerberos.kerberos_ │ handle_other(): Mutual authentication \
         #   unavailable on 403 response
