@@ -43,6 +43,7 @@ def main() {
                     poetry run ci-artifacts --help
                     poetry run cmk-dev --help
                     poetry run cpumon --help
+                    poetry run job-resource-usage --help
                     poetry run last-access --help
 
                     # scripts without argparser or some other reason
