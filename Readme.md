@@ -200,6 +200,18 @@ ci-artifacts --log-level debug \
 
 - [ ] request CI build from local changes
 
+### `job-resource-usage`
+
+This is a tool to parse resource usage data for single containers
+based on data collected by docker-shaper.
+The [ndjson](https://github.com/ndjson/ndjson-spec) formatted data files can usually be found on the build nodes at `~jenkins/.docker_shaper/container-logs`.
+
+#### Usage
+
+```bash
+job-resource-usage --before=7d --after=14d folder/with/datafiles/
+```
+
 ## Development & Contribution
 
 ### Setup
