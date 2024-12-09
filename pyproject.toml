@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "checkmk-dev-tools"
-version = "0.2.0"
+version = "0.2.1"
 description = "Checkmk DevOps tools"
 authors = [
   "Frans Fürst <frans.fuerst@checkmk.com>",
