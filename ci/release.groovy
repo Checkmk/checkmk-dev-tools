@@ -87,7 +87,7 @@ def main() {
                     string(credentialsId: 'PYPI_API_TOKEN_CMK_DEV_TOOLS_ONLY', variable: 'PYPI_API_TOKEN_CMK_DEV_TOOLS_ONLY')
                 ]) {
                     sh(label: "publish package", script: """
-                        poetry config pypi-token.pypi ${PYPI_API_TOKEN_CMK_DEV_TOOLS_ONLY}
+                        poetry config pypi-token.pypi "${PYPI_API_TOKEN_CMK_DEV_TOOLS_ONLY}"
                         poetry publish --skip-existing
                     """);
                 }

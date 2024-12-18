@@ -171,7 +171,7 @@ def parse_args() -> Args:
         "fetch",
         help="Trigger or identify matching build, wait for it to finish, download artifacts.",
     )
-    parser_fetch.set_defaults(func=_fn_fetch)
+    parser_fetch.set_defaults(func=_fn_fetch, download=True)
     apply_common_args(parser_fetch)
     apply_request_args(parser_fetch)
     apply_download_args(parser_fetch)
