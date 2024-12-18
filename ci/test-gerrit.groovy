@@ -6,6 +6,7 @@ def main() {
     def image_name = "python-curl-poetry";
     def dockerfile = "ci/Dockerfile";
     def docker_args = "${mount_reference_repo_dir}";
+    def release_new_version_flag = false;
 
     if ("${env.GERRIT_EVENT_TYPE}" == "change-merged") {
         print("This is a merged change event run");
@@ -52,7 +53,7 @@ def main() {
             }
         }
 
-        stage("Create changelog and tag") {
+        stage("Create changelog") {
             docker_image.inside(docker_args) {
                 sh(label: "create changelog", script: """
                     set -o pipefail
@@ -74,7 +75,28 @@ def main() {
                         --print \
                         --output version.json
                 """);
+            }
+        }
 
+        stage("Check tag exists") {
+            withCredentials([sshUserPrivateKey(credentialsId: "release-checkmk", keyFileVariable: 'keyfile')]) {
+                withEnv(["GIT_SSH_COMMAND=ssh -o \"StrictHostKeyChecking no\" -i ${keyfile} -l release"]) {
+                    release_new_version_flag = sh(script: """
+                        git fetch --prune --prune-tags
+                        CHANGELOG_VERSION=\$(jq -r .info.version version.json)
+                        if [ \$(git tag -l "v\$CHANGELOG_VERSION") ]; then
+                            echo "Tag v\$CHANGELOG_VERSION exits already"
+                            exit 1
+                        else
+                            echo "Tag v\$CHANGELOG_VERSION does not yet exit"
+                        fi
+                    """, returnStatus: true) == 0;
+                }
+            }
+        }
+
+        smart_stage(name: "Create tag", condition: release_new_version_flag, raiseOnError: false) {
+            docker_image.inside(docker_args) {
                 withCredentials([sshUserPrivateKey(credentialsId: "release-checkmk", keyFileVariable: 'keyfile')]) {
                     withEnv(["GIT_SSH_COMMAND=ssh -o \"StrictHostKeyChecking no\" -i ${keyfile} -l release"]) {
                         sh(label: "create and publish tag", returnStdout: true, script: """
@@ -98,7 +120,7 @@ def main() {
             }
         }
 
-        stage("Build and publish test package") {
+        stage("Build package") {
             docker_image.inside(docker_args) {
                 sh(label: "build package", script: """
                     # see comment in pyproject.toml
@@ -109,7 +131,11 @@ def main() {
                     python3 -m pip uninstall -y checkmk_dev_tools
                     python3 -m pip install --pre --user dist/checkmk_dev_tools-*-py3-none-any.whl
                 """);
+            }
+        }
 
+        smart_stage(name: "Publish package", condition: release_new_version_flag, raiseOnError: false) {
+            docker_image.inside(docker_args) {
                 withCredentials([
                     string(credentialsId: 'TEST_PYPI_API_TOKEN_CMK_DEV_TOOLS_ONLY', variable: 'TEST_PYPI_API_TOKEN_CMK_DEV_TOOLS_ONLY')
                 ]) {
