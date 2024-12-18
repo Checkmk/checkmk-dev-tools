@@ -268,9 +268,6 @@ poetry run \
     | jq -r .info.version
 ```
 
-* (once and only for publishing to PyPi) Get token on PyPi.org
-* (once and only for publishing to PyPi) `poetry config pypi-token.pypi pypi-<LONG-STRING>`
-  (will write to `~/.config/pypoetry/auth.toml`)
 * modify and check commits via `pre-commit run --all-files`
 * after work is done locally:
 
@@ -285,15 +282,16 @@ poetry run twine check dist/* &&
 python3 -m pip uninstall -y checkmk_dev_tools && \
 python3 -m pip install --user dist/checkmk_dev_tools-$(grep -E "^version.?=" pyproject.toml | cut -d '"' -f 2)-py3-none-any.whl
 ```
-  - commit, push, review and merge the changes, see `checkmk_dev_tools/+/88632/`
+  - commit, push and review the changes
 ```sh
 git add ...
 git commit -m "cmk-dev-tools: bump version, update dependencies"
-# merge
 ```
-  - publish new package version
+  - test deployed packages from `test.pypi.org`. The extra index URL is required to get those dependencies from `pypi.org` which are not available from `test.pypi.org`
 ```sh
-poetry publish --build [--repository checkmk_dev_tools]
-git tag -a v<VERSION> <MERGE_COMMIT> -m "v<VERSION>"
-git push --tags
+pip install --no-cache-dir \
+    -i https://test.pypi.org/simple/ \
+    --extra-index-url https://pypi.org/simple \
+    checkmk-dev-tools==<VERSION_WITH_RC>
 ```
+  - finally merge the changes and let Jenkins create the release tag and deployment
