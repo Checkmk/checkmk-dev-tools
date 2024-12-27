@@ -9,7 +9,7 @@ authors = [
   "Timotheus Bachinger <timotheus.bachinger@checkmk.com>"
 ]
 repository = "https://github.com/Checkmk/checkmk-dev-tools"
-readme = "Readme.md"
+readme = "README.md"
 packages = [
   {include = "cmk_dev/**/*.py"}
 ]
