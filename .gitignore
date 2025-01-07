@@ -8,6 +8,7 @@
 __pycache__
 .mypy_cache
 idea
+.idea
 *.wpu
 
 # automatically updated by snippets2changelog and changelog2version
