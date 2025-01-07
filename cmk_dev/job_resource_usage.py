@@ -253,7 +253,7 @@ def get_pretty_container_info(c: Container) -> str:
 
     return (
         f"{job_name}, {start_time} "
-        f"{format_cpu_peak(cpu_peak, start_time)}, "
+        f"{format_cpu_peak(cpu_peak, start_time)} ({format_cpu_average(c.datapoints)}), "
         f"{format_memory_peak(mem_peak, start_time)} (data: {c.source_filename})"
     )
 
@@ -262,6 +262,15 @@ def format_cpu_peak(dp: Datapoint, start_time: datetime) -> str:
     peak_time = format_peak_time(dp, start_time)
 
     return f"CPU: {dp.cpu_usage} @ {peak_time}"
+
+
+def format_cpu_average(datapoints: list[Datapoint]) -> str:
+    amount_datapoints = len(datapoints)
+    if not amount_datapoints:
+        return "unable to calculate average"
+    summed_usage = sum(dp.cpu_usage for dp in datapoints)
+
+    return f"average: {summed_usage / amount_datapoints:.4} CPU"
 
 
 def format_memory_peak(dp: Datapoint, start_time: datetime) -> str:
