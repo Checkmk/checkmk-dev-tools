@@ -21,18 +21,15 @@ def main() {
 
     dir("${checkout_dir}") {
         def docker_image = docker.build(image_name, "-f ${dockerfile} .");
-
-        stage('Pre-commit hooks') {
-            docker_image.inside(docker_args) {
+        docker_image.inside(docker_args) {
+            stage('Pre-commit hooks') {
                 sh(label: "Pre-commit and run hooks", script: """
                     dev/run-in-venv \
                         pre-commit run --all-files
                 """);
             }
-        }
 
-        stage("Validate entrypoints") {
-            docker_image.inside(docker_args) {
+            stage("Validate entrypoints") {
                 sh(label: "run entrypoints", script: """
                     set -o pipefail
                     poetry --version
@@ -51,10 +48,8 @@ def main() {
                     # poetry run pycinfo --help
                 """);
             }
-        }
 
-        stage("Create changelog") {
-            docker_image.inside(docker_args) {
+            stage("Create changelog") {
                 sh(label: "create changelog", script: """
                     set -o pipefail
                     dev/run-in-venv \
@@ -76,27 +71,25 @@ def main() {
                         --output version.json
                 """);
             }
-        }
 
-        stage("Check tag exists") {
-            withCredentials([sshUserPrivateKey(credentialsId: "release-checkmk", keyFileVariable: 'keyfile')]) {
-                withEnv(["GIT_SSH_COMMAND=ssh -o \"StrictHostKeyChecking no\" -i ${keyfile} -l release"]) {
-                    release_new_version_flag = sh(script: """
-                        git fetch --prune --prune-tags
-                        CHANGELOG_VERSION=\$(jq -r .info.version version.json)
-                        if [ \$(git tag -l "v\$CHANGELOG_VERSION") ]; then
-                            echo "Tag v\$CHANGELOG_VERSION exits already"
-                            exit 1
-                        else
-                            echo "Tag v\$CHANGELOG_VERSION does not yet exit"
-                        fi
-                    """, returnStatus: true) == 0;
+            stage("Check tag exists") {
+                withCredentials([sshUserPrivateKey(credentialsId: "release-checkmk", keyFileVariable: 'keyfile')]) {
+                    withEnv(["GIT_SSH_COMMAND=ssh -o \"StrictHostKeyChecking no\" -i ${keyfile} -l release"]) {
+                        release_new_version_flag = sh(script: """
+                            git fetch --prune --prune-tags
+                            CHANGELOG_VERSION=\$(jq -r .info.version version.json)
+                            if [ \$(git tag -l "v\$CHANGELOG_VERSION") ]; then
+                                echo "Tag v\$CHANGELOG_VERSION exits already"
+                                exit 1
+                            else
+                                echo "Tag v\$CHANGELOG_VERSION does not yet exit"
+                            fi
+                        """, returnStatus: true) == 0;
+                    }
                 }
             }
-        }
 
-        smart_stage(name: "Create tag", condition: release_new_version_flag, raiseOnError: false) {
-            docker_image.inside(docker_args) {
+            smart_stage(name: "Create tag", condition: release_new_version_flag, raiseOnError: false) {
                 withCredentials([sshUserPrivateKey(credentialsId: "release-checkmk", keyFileVariable: 'keyfile')]) {
                     withEnv(["GIT_SSH_COMMAND=ssh -o \"StrictHostKeyChecking no\" -i ${keyfile} -l release"]) {
                         sh(label: "create and publish tag", returnStdout: true, script: """
@@ -118,13 +111,11 @@ def main() {
                     }
                 }
             }
-        }
 
-        stage("Build package") {
-            docker_image.inside(docker_args) {
+            stage("Build package") {
                 sh(label: "build package", script: """
                     # see comment in pyproject.toml
-                    poetry self add "poetry-dynamic-versioning[plugin]"
+                    poetry self add "poetry-dynamic-versioning[plugin]==1.4.1"
                     rm -rf dist/*
                     poetry build
                     poetry run twine check dist/*
@@ -132,10 +123,8 @@ def main() {
                     python3 -m pip install --pre --user dist/checkmk_dev_tools-*-py3-none-any.whl
                 """);
             }
-        }
 
-        smart_stage(name: "Publish package", condition: release_new_version_flag, raiseOnError: false) {
-            docker_image.inside(docker_args) {
+            smart_stage(name: "Publish package", condition: release_new_version_flag, raiseOnError: false) {
                 withCredentials([
                     string(credentialsId: 'TEST_PYPI_API_TOKEN_CMK_DEV_TOOLS_ONLY', variable: 'TEST_PYPI_API_TOKEN_CMK_DEV_TOOLS_ONLY')
                 ]) {
