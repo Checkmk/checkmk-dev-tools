@@ -226,9 +226,6 @@ pre-commit install
 # if you need a specific version of Python inside your dev environment
 poetry env use ~/.pyenv/versions/3.10.4/bin/python3
 poetry install
-# install "poetry-bumpversion" to easily bump package version later
-# it is not enough to add it to the projects pyproject.toml file
-poetry self add poetry-bumpversion
 ```
 
 ### Workflow
