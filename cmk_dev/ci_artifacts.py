@@ -368,11 +368,16 @@ def find_mismatching_parameters(
 ) -> Sequence[tuple[str, JobParamValue, JobParamValue]]:
     """Returns list of key and mismatching values in mapping @first which also occur in @second"""
     # TODO: find solution for unprovided parameters and default/empty values
-    return [
-        (key, cast(JobParamValue, first.get(key, "")), cast(JobParamValue, second.get(key, "")))
-        for key in set(first.keys() | second.keys()) - {"DISABLE_CACHE"}
-        if first.get(key) and first.get(key, "") != second.get(key, "")
-    ]
+    mismatching_parameters = []
+    for key in set(first.keys() | second.keys()) - {"DISABLE_CACHE"}:
+        if first_val := first.get(key, ""):
+            second_val = second.get(key, "")
+
+            if first_val != second_val:
+                mismatching_parameters.append(
+                    (key, cast(JobParamValue, first_val), cast(JobParamValue, second_val))
+                )
+    return mismatching_parameters
 
 
 def meets_constraints(
