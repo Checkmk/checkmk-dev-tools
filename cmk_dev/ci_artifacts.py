@@ -368,11 +368,20 @@ def find_mismatching_parameters(
 ) -> Sequence[tuple[str, JobParamValue, JobParamValue]]:
     """Returns list of key and mismatching values in mapping @first which also occur in @second"""
     # TODO: find solution for unprovided parameters and default/empty values
+    bool_map = {"true": True, "false": False}
     mismatching_parameters = []
     for key in set(first.keys() | second.keys()) - {"DISABLE_CACHE"}:
         if first.get(key):
             first_val = first.get(key, "")
             second_val = second.get(key, "")
+
+            assert first_val not in ["TRUE", "FALSE", "True", "False"], "Only groovy lower case bool 'false' or 'true' allowed"
+
+            # apply bool mapping in most stupid way
+            if isinstance(first_val, str):
+                first_val = bool_map.get(first_val, first_val)
+            if isinstance(second_val, str):
+                second_val = bool_map.get(second_val, second_val)
 
             if first_val != second_val:
                 mismatching_parameters.append(

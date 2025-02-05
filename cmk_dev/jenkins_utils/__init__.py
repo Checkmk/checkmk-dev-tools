@@ -29,7 +29,7 @@ GenMapVal = Union[None, bool, str, float, int, "GenMapArray", "GenMap"]
 GenMapArray = Sequence[GenMapVal]
 GenMap = Mapping[str, GenMapVal]
 
-JobParamValue = Union[int, str]
+JobParamValue = Union[int, str, bool]
 JobParams = Mapping[str, JobParamValue]
 
 QueueId = int
