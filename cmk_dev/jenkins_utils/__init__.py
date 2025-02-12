@@ -13,7 +13,7 @@ import json
 import logging
 import os
 from argparse import ArgumentParser
-from collections.abc import AsyncIterable, Iterable, Mapping, Sequence
+from collections.abc import AsyncIterable, Iterable, Mapping, MutableMapping, Sequence
 from configparser import ConfigParser
 from pathlib import Path
 from typing import Any, Literal, Union, cast
@@ -30,7 +30,7 @@ GenMapArray = Sequence[GenMapVal]
 GenMap = Mapping[str, GenMapVal]
 
 JobParamValue = Union[int, str, bool]
-JobParams = Mapping[str, JobParamValue]
+JobParams = MutableMapping[str, JobParamValue]
 
 QueueId = int
 BuildId = int

@@ -790,6 +790,18 @@ async def identify_matching_build(
 
     return None
 
+def convert_params(params: JobParams) -> JobParams:
+    """convert params to use real boolean True/False instead of 'true'/'false'"""
+    bool_map = {"true": True, "false": False}
+    converted_params: JobParams = {}
+    for key, val in params.items():
+        # apply bool mapping in most stupid way
+        if isinstance(val, str):
+            converted_params[key] = bool_map.get(val, val)
+        else:
+            converted_params[key] = val
+
+    return converted_params
 
 def compose_build_params(
     params: None | JobParams,
@@ -798,8 +810,8 @@ def compose_build_params(
 ) -> JobParams:
     """Convenience function combining job parameters"""
     return {
-        **(params or {}),
-        **(params_no_check or {}),
+        **(convert_params(params=params or {})),
+        **(convert_params(params=params_no_check or {})),
         **(
             {
                 "DEPENDENCY_PATH_HASHES": ",".join(
