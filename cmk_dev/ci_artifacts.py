@@ -26,6 +26,7 @@ from pathlib import Path
 from subprocess import check_output
 from typing import Any, Literal, cast
 
+import requests
 from jenkins import Jenkins
 from trickkiste.logging_helper import apply_common_logging_cli_args, setup_logging
 from trickkiste.misc import compact_dict, cwd, md5from, split_params
@@ -314,14 +315,23 @@ def download_artifacts(
                 fp_hash,
             )
 
-        with client._session.get(f"{build.url}artifact/{artifact}", stream=True) as reply:
-            log().debug("download: %s", artifact)
-            reply.raise_for_status()
-            artifact_filename.parent.mkdir(parents=True, exist_ok=True)
-            with open(artifact_filename, "wb") as out_file:
-                for chunk in reply.iter_content(chunk_size=1 << 16):
-                    out_file.write(chunk)
-            downloaded_artifacts.append(artifact)
+        MAX_RETRIES = 3
+        for attempt in range(MAX_RETRIES):
+            try:
+                with client._session.get(f"{build.url}artifact/{artifact}", stream=True) as reply:
+                    log().debug("download: %s", artifact)
+                    reply.raise_for_status()
+                    artifact_filename.parent.mkdir(parents=True, exist_ok=True)
+                    with open(artifact_filename, "wb") as out_file:
+                        for chunk in reply.iter_content(chunk_size=8192):
+                            if chunk:  # Filter out keep-alive chunks
+                                out_file.write(chunk)
+                    downloaded_artifacts.append(artifact)
+                break
+            except requests.exceptions.ChunkedEncodingError as e:
+                log().debug("Retrying due to chunked encoding error: %s (attempt %d/%d)", e, attempt + 1, MAX_RETRIES)
+                if attempt == MAX_RETRIES - 1:
+                    raise
 
     if not no_remove_others:
         for path in existing_files - set(downloaded_artifacts) - set(skipped_artifacts):
