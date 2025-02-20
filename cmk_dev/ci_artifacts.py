@@ -329,7 +329,12 @@ def download_artifacts(
                     downloaded_artifacts.append(artifact)
                 break
             except requests.exceptions.ChunkedEncodingError as e:
-                log().debug("Retrying due to chunked encoding error: %s (attempt %d/%d)", e, attempt + 1, MAX_RETRIES)
+                log().info("Retrying due to chunked encoding error: %s (attempt %d/%d)", e, attempt + 1, MAX_RETRIES)
+                if attempt == MAX_RETRIES - 1:
+                    raise
+            except requests.exceptions.ConnectionError as e:
+                # like "Remote end closed connection without response"
+                log().info("Retrying due to connection error error: %s (attempt %d/%d)", e, attempt + 1, MAX_RETRIES)
                 if attempt == MAX_RETRIES - 1:
                     raise
 
