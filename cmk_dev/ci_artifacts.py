@@ -332,6 +332,11 @@ def download_artifacts(
                 log().debug("Retrying due to chunked encoding error: %s (attempt %d/%d)", e, attempt + 1, MAX_RETRIES)
                 if attempt == MAX_RETRIES - 1:
                     raise
+            except requests.exceptions.ConnectionError as e:
+                # like "Remote end closed connection without response"
+                log().debug("Retrying due to connection error error: %s (attempt %d/%d)", e, attempt + 1, MAX_RETRIES)
+                if attempt == MAX_RETRIES - 1:
+                    raise
 
     if not no_remove_others:
         for path in existing_files - set(downloaded_artifacts) - set(skipped_artifacts):
