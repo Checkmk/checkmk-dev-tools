@@ -186,7 +186,11 @@ def _load_file_to_container_format(path: pathlib.Path) -> dict[str, Any]:
 
     with path.open() as f:
         for line in f:
-            json_data = json.loads(line)
+            try:
+                json_data = json.loads(line)
+            except json.decoder.JSONDecodeError as decodeError:
+                print(f"Failed to process line in {path}: {decodeError}")
+                continue
 
             if "Id" in json_data:
                 if metadata:
