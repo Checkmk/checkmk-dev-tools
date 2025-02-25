@@ -18,20 +18,9 @@ Install it locally using `pip`:
 
 ## Contained tools
 
-### `ci-artifacts`
+### General
 
-`ci-artifacts` is a tool for accessing and triggering (currently Jenkins only) CI job builds and
-making build artifacts available locally in an efficient way (i.e. avoiding unnessessary builds by
-comparing certain constraints like job parameters and time of already available builds).
-
-Formerly it was only used to make artifacts available which is the reason for the name and some
-CLI desing desicions.
-
-#### Usage
-
-Run `ci-artifacts --help` in general to get more details about the usage of the tool.
-
-If no API key, username and URL to Jenkins is provided in `~/.config/jenkins_jobs/jenkins_jobs.ini` those parameters have to be specified explicitly.
+For tools interacting with Jenkins an API key, username and URL to Jenkins has to be provided with `~/.config/jenkins_jobs/jenkins_jobs.ini` otherwise those parameters have to be specified explicitly.
 
 This is a template of the `jenkins_jobs.ini` file
 
@@ -44,6 +33,19 @@ password=API_KEY_NOT_YOUR_PASSWORD
 url=https://JENKINS_URL.tld
 query_plugins_info=False
 ```
+
+### `ci-artifacts`
+
+`ci-artifacts` is a tool for accessing and triggering (currently Jenkins only) CI job builds and
+making build artifacts available locally in an efficient way (i.e. avoiding unnessessary builds by
+comparing certain constraints like job parameters and time of already available builds).
+
+Formerly it was only used to make artifacts available which is the reason for the name and some
+CLI desing desicions.
+
+#### Usage
+
+Run `ci-artifacts --help` in general to get more details about the usage of the tool.
 
 ##### Await result
 
@@ -210,6 +212,46 @@ The [ndjson](https://github.com/ndjson/ndjson-spec) formatted data files can usu
 
 ```bash
 job-resource-usage --before=7d --after=14d folder/with/datafiles/
+```
+
+### `lockable-resources`
+
+`lockable-resources` is a tool for listing, locking and unlocking [lockable resources](https://plugins.jenkins.io/lockable-resources/) of Jenkins.
+
+#### General
+
+Run `lockable-resources --help` in general to get more details about the usage of the tool.
+
+#### List
+
+The `list` argument provides a JSON output of all labels and their resources.
+
+```sh
+lockable-resources -vvv list
+```
+
+```json
+{"my_label": ["resouce1", "resouce2"], "other_label": ["this", "that"]}
+```
+
+#### Reserve and unreserve
+
+The `reserve` and the `unreserve` argument require a single or a list of labels to lock or unlock.
+
+```sh
+lockable-resources -vvv \
+[--fail-already-locked] \
+[reserve, unreserve] first_resource second_resource third_resource
+```
+
+With the `--fail-already-locked` flag an exception can be thrown if the resource is already locked. If this flag is not set only a warning is logged.
+
+To lock all resources with the label `my_lock` use the following simple call
+
+```sh
+lockable-resources list | \
+jq -c .my_lock[] | \
+xargs -I {} lockable-resources -vvv reserve {}
 ```
 
 ## Development & Contribution

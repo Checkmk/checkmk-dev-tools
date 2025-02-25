@@ -42,6 +42,7 @@ def main() {
                     poetry run cpumon --help
                     poetry run job-resource-usage --help
                     poetry run last-access --help
+                    poetry run lockable-resources --help
 
                     # scripts without argparser or some other reason
                     # poetry run decent-output --help
