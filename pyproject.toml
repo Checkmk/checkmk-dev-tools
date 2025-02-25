@@ -28,6 +28,7 @@ last-access = 'cmk_dev.last_access:main'
 # not-picked = 'cmk_dev.not_picked:main'
 procmon = 'cmk_dev.procmon:main'
 pycinfo = 'cmk_dev.pycinfo:main'
+lockable-resources = 'cmk_dev.lockable_resources:main'
 
 [tool.poetry.dependencies]
 python = "^3.10.4"  #   currently lowest supported Python version (CI Build Nodes)
