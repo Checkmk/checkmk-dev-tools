@@ -106,6 +106,11 @@ def main() {
                             export GIT_COMMITTER_NAME="Checkmk release system"
                             export GIT_COMMITTER_EMAIL="noreply@checkmk.com"
                             git fetch --prune --prune-tags
+
+                            # adjust URL to this changelog in pyproject file, use double quotes for env variable usage
+                            sed -i "s#CHANGE_ME_I_AM_A_CHANGELOG#release/\${CHANGELOG_VERSION}#" pyproject.toml
+
+                            # create and publish tag
                             git tag -a v\$CHANGELOG_VERSION-rc${env.GERRIT_PATCHSET_NUMBER} -m "v\$CHANGELOG_VERSION-rc${env.GERRIT_PATCHSET_NUMBER}"
                             git tag --list
                             git push origin tag v\$CHANGELOG_VERSION-rc${env.GERRIT_PATCHSET_NUMBER}

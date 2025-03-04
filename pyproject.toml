@@ -8,12 +8,15 @@ authors = [
   "Niko Wenselowski <niko.wenselowski@checkmk.com>",
   "Timotheus Bachinger <timotheus.bachinger@checkmk.com>"
 ]
-repository = "https://github.com/Checkmk/checkmk-dev-tools"
 readme = "README.md"
 packages = [
   {include = "cmk_dev/**/*.py"}
 ]
 exclude = ["cmk_dev/out"]
+
+[tool.poetry.urls]
+Repository = "https://github.com/Checkmk/checkmk-dev-tools"
+Changelog = "https://github.com/Checkmk/checkmk-dev-tools/blob/CHANGE_ME_I_AM_A_CHANGELOG/changelog.md"
 
 [tool.poetry.scripts]
 activity-from-fs = 'cmk_dev.activity_from_fs:main'
