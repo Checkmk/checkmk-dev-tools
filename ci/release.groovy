@@ -62,7 +62,7 @@ def main() {
                 }
             }
 
-            smart_stage(name: "Create tag", condition: release_new_version_flag, raiseOnError: false) {
+            smart_stage(name: "Publish tag and Changelog", condition: release_new_version_flag, raiseOnError: false) {
                 withCredentials([sshUserPrivateKey(credentialsId: "release-checkmk", keyFileVariable: 'keyfile')]) {
                     withEnv(["GIT_SSH_COMMAND=ssh -o \"StrictHostKeyChecking no\" -i ${keyfile} -l release"]) {
                         sh(label: "create and publish tag", returnStdout: true, script: """
@@ -77,6 +77,17 @@ def main() {
                             export GIT_COMMITTER_NAME="Checkmk release system"
                             export GIT_COMMITTER_EMAIL="noreply@checkmk.com"
                             git fetch --prune --prune-tags
+
+                            # create release branch and publish generated changelog
+                            git checkout -b release/v\$CHANGELOG_VERSION
+                            git add changelog.md cmk_dev/version.py
+                            git commit -m "Add changelog for \$CHANGELOG_VERSION"
+                            git push origin HEAD:release/\$CHANGELOG_VERSION
+
+                            # adjust URL to this changelog in pyproject file, use double quotes for env variable usage
+                            sed -i "s#CHANGE_ME_I_AM_A_CHANGELOG#release/\${CHANGELOG_VERSION}#" pyproject.toml
+
+                            # create and publish tag
                             git tag -a v\$CHANGELOG_VERSION -m "v\$CHANGELOG_VERSION"
                             git tag --list
                             git push origin tag v\$CHANGELOG_VERSION
