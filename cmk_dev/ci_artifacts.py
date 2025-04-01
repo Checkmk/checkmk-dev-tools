@@ -510,7 +510,7 @@ def build_id_from_queue_item(client: Jenkins, queue_id: QueueId) -> BuildId:
         if executable := queue_item.get("executable"):
             return executable["number"]
         log().debug("still waiting in queue, because %s", queue_item["why"])
-        time.sleep(1)
+        time.sleep(30)
 
 
 async def find_matching_queue_item(
@@ -877,7 +877,7 @@ async def await_build(
         while True:
             if not current_build_info.completed:
                 log().debug("build %s in progress", build_number)
-                time.sleep(10)
+                time.sleep(60)
                 current_build_info = await jenkins_client.build_info(job_full_path, build_number)
                 continue
             break
