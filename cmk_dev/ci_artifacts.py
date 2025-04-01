@@ -812,7 +812,7 @@ def convert_params(params: JobParams) -> JobParams:
     for key, val in params.items():
         # apply bool mapping in most stupid way
         if isinstance(val, str):
-            converted_params[key] = bool_map.get(val, val)
+            converted_params[key] = bool_map.get(val.lower(), val)
         else:
             converted_params[key] = val
 
