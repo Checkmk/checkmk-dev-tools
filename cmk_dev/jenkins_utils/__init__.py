@@ -21,6 +21,7 @@ from typing import Any, Literal, Union, cast
 import jenkins
 from jenkins import Jenkins
 from pydantic import BaseModel, Json, model_validator
+from retry import retry
 from trickkiste.misc import asyncify, compact_dict, date_str, dur_str, split_params
 
 from cmk_dev.utils import Fatal
@@ -539,11 +540,13 @@ class AugmentedJenkinsClient:
         )
 
     @asyncify
+    @retry(tries=3, delay=1, logger=log())
     def raw_jobs(self) -> GenMap:
         """Async wrapper for get_jobs()"""
         return self.client.get_jobs()
 
     @asyncify
+    @retry(tries=3, delay=1, logger=log())
     def raw_job_info(self, job_full_name: str) -> GenMap:
         """Fetches Jenkins job info for @job_full_name"""
         log().debug("fetch job info for %s", job_full_name)
@@ -558,11 +561,13 @@ class AugmentedJenkinsClient:
         )
 
     @asyncify
+    @retry(tries=3, delay=1, logger=log())
     def raw_build_info(self, job_full_name: str, build_number: int) -> GenMap:
         """Returns raw Jenkins job info for @job_full_name"""
         log().debug("fetch build log for %s:%d", job_full_name, build_number)
         return self.client.get_build_info(job_full_name, build_number)
 
+    @retry(tries=3, delay=1, logger=log())
     async def build_info(self, job_full_name: str | Sequence[str], build_number: int) -> Build:
         """Fetches Jenkins build info for @job_full_name#@build_number"""
         return Build.model_validate(
@@ -573,6 +578,7 @@ class AugmentedJenkinsClient:
         )
 
     @asyncify
+    @retry(tries=3, delay=1, logger=log())
     def queue_info(self) -> Sequence[GenMap]:
         """Async wrapper for get_queue_info()"""
         return self.client.get_queue_info()
