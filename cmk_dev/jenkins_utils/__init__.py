@@ -15,6 +15,7 @@ import os
 from argparse import ArgumentParser
 from collections.abc import AsyncIterable, Iterable, Mapping, MutableMapping, Sequence
 from configparser import ConfigParser
+from contextlib import suppress
 from pathlib import Path
 from typing import Any, Literal, Union, cast
 
@@ -196,9 +197,16 @@ class Job(SimpleJob):
         max_build_infos: None | int = None,
     ) -> "Job":
         """Fetches elements which are not part of the simple job instance"""
+
+        async def resilient_build_info(path: str, number: int) -> Build | None:
+            with suppress(jenkins.JenkinsException):
+                return await jenkins_client.build_info(path, number)
+            return None
+
         self.build_infos = {
-            (build := await jenkins_client.build_info(self.path, b.number)).number: build
+            build.number: build
             for b in self.builds[:max_build_infos]
+            if (build := await resilient_build_info(self.path, b.number))
         }
         return self
 
