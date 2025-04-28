@@ -26,7 +26,7 @@ class Jenkins:
     _session: Session
     auth: Auth
 
-    def __init__(self, url: str, username: str, password: str, timeout: int) -> None:
+    def __init__(self, url: str, username: str, password: str, timeout: int, retries: int) -> None:
         ...
 
     def get_whoami(self) -> dict[str, str]:

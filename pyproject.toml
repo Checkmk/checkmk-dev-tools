@@ -35,7 +35,7 @@ lockable-resources = 'cmk_dev.lockable_resources:main'
 
 [tool.poetry.dependencies]
 python = "^3.10.4"  #   currently lowest supported Python version (CI Build Nodes)
-python-jenkins = "^1" # needed for ci-artifacts
+python-jenkins = { git = "https://opendev.org/jjb/python-jenkins.git", rev = "f29d64f991b7d44140863e0f4efa17633793e949" } # needed for ci-artifacts
 pydantic = "^2" # jenkins_utils/*, docker_shaper/*
 rich = "*"  # activity_from_fs.py, docker_shaper/*
 retry = "*"
