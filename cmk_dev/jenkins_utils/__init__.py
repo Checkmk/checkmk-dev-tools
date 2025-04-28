@@ -399,6 +399,7 @@ class AugmentedJenkinsClient:
             username=username,
             password=password,
             timeout=timeout if timeout is not None else 60,
+            retries=5,
         )
 
     def __enter__(self) -> "AugmentedJenkinsClient":
