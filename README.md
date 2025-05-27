@@ -104,7 +104,7 @@ ci-artifacts --log-level debug \
     --dependency-paths agents/wnx,agents/windows,packages/cmk-agent-ctl \
     --time-constraints today \
     --base-dir ~/my-git-projects/checkmk/master \
-    --out-dir package_download
+    --out-dir package_download \
 ```
 
 **`--params <JOB-PARAMETERS>`**
@@ -133,6 +133,14 @@ Don't start new builds, even when no matching build could be found.
 **`--force-new-build`**
 
 Don't look for existing builds, always start a new build instead.
+
+**`--poll-sleep`**
+
+Overwrite default poll interval checking the status of a running Jenkins job.
+
+**`--poll-queue-sleep`**
+
+Overwrite default poll interval checking the status of a queued Jenkins job.
 
 ##### Request
 
