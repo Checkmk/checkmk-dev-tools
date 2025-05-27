@@ -134,6 +134,14 @@ Don't start new builds, even when no matching build could be found.
 
 Don't look for existing builds, always start a new build instead.
 
+**`--poll-sleep`**
+
+Overwrite default poll interval checking the status of a running Jenkins job.
+
+**`--poll-queue-sleep`**
+
+Overwrite default poll interval checking the status of a queued Jenkins job.
+
 ##### Request
 
 Like `fetch` but with the optional parameter `--passive` which outputs the informations needed to trigger a build instead of triggering the build.

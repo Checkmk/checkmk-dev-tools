@@ -121,6 +121,20 @@ def parse_args() -> Args:
             action="store_true",
             help="Don't check for existing matching builds, instead start a new build immediately",
         )
+        subparser.add_argument(
+            "--poll-queue-sleep",
+            dest="poll_queue_sleep",
+            type=int,
+            default=30,
+            help="Poll sleep time for queued jobs"
+        )
+        subparser.add_argument(
+            "--poll-sleep",
+            dest="poll_sleep",
+            type=int,
+            default=60,
+            help="Poll sleep time for running jobs"
+        )
 
     def apply_download_args(subparser: ArgumentParser) -> None:
         subparser.add_argument(
@@ -495,7 +509,7 @@ def meets_constraints(
     return result
 
 
-def build_id_from_queue_item(client: Jenkins, queue_id: QueueId) -> BuildId:
+def build_id_from_queue_item(client: Jenkins, queue_id: QueueId, next_check_sleep: int = 30) -> BuildId:
     """Waits for queue item with given @queue_id to be scheduled and returns Build instance"""
     queue_item = client.get_queue_item(queue_id)
     log().info(
@@ -510,7 +524,7 @@ def build_id_from_queue_item(client: Jenkins, queue_id: QueueId) -> BuildId:
         if executable := queue_item.get("executable"):
             return executable["number"]
         log().debug("still waiting in queue, because %s", queue_item["why"])
-        time.sleep(30)
+        time.sleep(next_check_sleep)
 
 
 async def find_matching_queue_item(
@@ -518,6 +532,7 @@ async def find_matching_queue_item(
     job: Job,
     params: None | JobParams,
     path_hashes: PathHashes,
+    next_check_sleep: int = 30,
 ) -> None | BuildId:
     """Looks for a queued build matching job and parameters and returns the QueueId"""
     for queue_item in await jenkins_client.queue_info():
@@ -555,7 +570,11 @@ async def find_matching_queue_item(
                 path_hashes,
             )
             continue
-        return build_id_from_queue_item(jenkins_client.client, cast(int, queue_item.get("id")))
+        return build_id_from_queue_item(
+            client=jenkins_client.client,
+            queue_id=cast(int, queue_item.get("id")),
+            next_check_sleep=next_check_sleep,
+        )
 
     return None
 
@@ -601,6 +620,7 @@ async def _fn_request_build(args: Args) -> None:
                 params=flatten(args.params),
                 path_hashes=compose_path_hashes(args.base_dir, args.dependency_paths),
                 time_constraints=args.time_constraints,
+                next_check_sleep=args.poll_queue_sleep,
             )
         ):
             print(
@@ -637,7 +657,7 @@ async def _fn_request_build(args: Args) -> None:
                 )
             )
         else:
-            new_build = await trigger_build(jenkins_client, job, new_build_params)
+            new_build = await trigger_build(jenkins_client=jenkins_client, job=job, params=new_build_params, next_check_sleep=args.poll_queue_sleep)
             print(
                 json.dumps(
                     {
@@ -678,6 +698,7 @@ async def _fn_await_and_handle_build(args: Args) -> None:
             check_result=True,
             path_hashes=None,
             allow_to_cancel=False,
+            next_check_sleep=args.poll_sleep,
         )
         print(
             json.dumps(
@@ -721,19 +742,21 @@ async def _fn_fetch(args: Args) -> None:
                 params=flatten(args.params),
                 path_hashes=compose_path_hashes(args.base_dir, args.dependency_paths),
                 time_constraints=args.time_constraints,
+                next_check_sleep=args.poll_queue_sleep,
             )
         )
         if args.omit_new_build and not matching_build:
             raise Fatal(f"No matching build found for job '{job.name}' but new builds are omitted.")
 
         build_candidate = matching_build or await trigger_build(
-            jenkins_client,
-            job,
-            compose_build_params(
+            jenkins_client=jenkins_client,
+            job=job,
+            params=compose_build_params(
                 params=flatten(args.params),
                 params_no_check=flatten(args.params_no_check),
                 path_hashes=compose_path_hashes(args.base_dir, args.dependency_paths),
             ),
+            next_check_sleep=args.poll_queue_sleep,
         )
 
         for key, value in build_candidate.__dict__.items():
@@ -745,6 +768,7 @@ async def _fn_fetch(args: Args) -> None:
             jenkins_client=jenkins_client,
             check_result=True,
             path_hashes=path_hashes,
+            next_check_sleep=args.poll_sleep,
         )
         downloaded_artifacts = (
             list(
@@ -778,6 +802,7 @@ async def identify_matching_build(
     params: None | JobParams,
     path_hashes: PathHashes,
     time_constraints: None | str,
+    next_check_sleep: int = 30,
 ) -> None | Build:
     """Find an existing build (finished, still running or queued) which matches our
     requirements specified by @job_full_path matching @params and
@@ -800,10 +825,11 @@ async def identify_matching_build(
             log().info("found matching unfinished build: %s (%s)", build.number, build.url)
             return build
 
-    if matching_item := await find_matching_queue_item(jenkins_client, job, params, path_hashes):
+    if matching_item := await find_matching_queue_item(jenkins_client=jenkins_client, job=job, params=params, path_hashes=path_hashes, next_check_sleep=next_check_sleep):
         return await jenkins_client.build_info(job.path, matching_item)
 
     return None
+
 
 def convert_params(params: JobParams) -> JobParams:
     """convert params to use real boolean True/False instead of 'true'/'false'"""
@@ -817,6 +843,7 @@ def convert_params(params: JobParams) -> JobParams:
             converted_params[key] = val
 
     return converted_params
+
 
 def compose_build_params(
     params: None | JobParams,
@@ -843,6 +870,7 @@ async def trigger_build(
     jenkins_client: AugmentedJenkinsClient,
     job: Job,
     params: JobParams,
+    next_check_sleep: int = 30,
 ) -> Build:
     """Convenience function triggering a build with given @params and waiting for build number"""
     log().info("start new build for %s", job.path)
@@ -851,8 +879,9 @@ async def trigger_build(
     return await jenkins_client.build_info(
         job.path,
         build_id_from_queue_item(
-            jenkins_client.client,
-            jenkins_client.client.build_job(job.path, parameters=params),
+            client=jenkins_client.client,
+            queue_id=jenkins_client.client.build_job(job.path, parameters=params),
+            next_check_sleep=next_check_sleep,
         ),
     )
 
@@ -865,6 +894,7 @@ async def await_build(
     check_result: bool,
     path_hashes: None | PathHashes,
     allow_to_cancel: bool = True,
+    next_check_sleep: int = 60,
 ) -> Build:
     """Awaits a Jenkins job build specified by @job_full_path and @build_number and returns the
     awaited Build object. Unexpected build failures or non-matching path hashes will be raised on.
@@ -877,7 +907,7 @@ async def await_build(
         while True:
             if not current_build_info.completed:
                 log().debug("build %s in progress", build_number)
-                time.sleep(60)
+                time.sleep(next_check_sleep)
                 current_build_info = await jenkins_client.build_info(job_full_path, build_number)
                 continue
             break
