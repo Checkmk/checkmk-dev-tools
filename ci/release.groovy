@@ -16,11 +16,18 @@ def main() {
     dir("${checkout_dir}") {
         def docker_image = docker.build(image_name, "-f ${dockerfile} .");
         docker_image.inside(docker_args) {
-            stage('Pre-commit hooks') {
-                sh(label: "Pre-commit and run hooks", script: """
-                    dev/run-in-venv \
-                        pre-commit run --all-files
-                """);
+            withCredentials([
+                usernamePassword(
+                    credentialsId: 'jenkins-api-token',
+                    usernameVariable: 'JENKINS_USERNAME',
+                    passwordVariable: 'JENKINS_PASSWORD')
+            ]) {
+                stage('Pre-commit hooks') {
+                    sh(label: "Pre-commit and run hooks", script: """
+                        dev/run-in-venv \
+                            pre-commit run --all-files
+                    """);
+                }
             }
 
             stage("Create changelog") {
