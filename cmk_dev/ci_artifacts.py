@@ -84,6 +84,20 @@ def parse_args() -> Args:
             type=lambda p: Path(p).expanduser(),
             help="The base directory used to fetch directory/file hashes (see. --dependency-paths)",
         )
+        subparser.add_argument(
+            "--poll-queue-sleep",
+            dest="poll_queue_sleep",
+            type=int,
+            default=30,
+            help="Poll sleep time for queued jobs"
+        )
+        subparser.add_argument(
+            "--poll-sleep",
+            dest="poll_sleep",
+            type=int,
+            default=60,
+            help="Poll sleep time for running jobs"
+        )
 
     def apply_request_args(subparser: ArgumentParser) -> None:
         subparser.add_argument(
@@ -120,20 +134,6 @@ def parse_args() -> Args:
             "--force-new-build",
             action="store_true",
             help="Don't check for existing matching builds, instead start a new build immediately",
-        )
-        subparser.add_argument(
-            "--poll-queue-sleep",
-            dest="poll_queue_sleep",
-            type=int,
-            default=30,
-            help="Poll sleep time for queued jobs"
-        )
-        subparser.add_argument(
-            "--poll-sleep",
-            dest="poll_sleep",
-            type=int,
-            default=60,
-            help="Poll sleep time for running jobs"
         )
 
     def apply_download_args(subparser: ArgumentParser) -> None:
