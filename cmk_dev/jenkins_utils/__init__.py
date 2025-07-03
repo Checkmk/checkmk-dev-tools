@@ -110,18 +110,20 @@ class Build(SimpleBuild):
         if obj.get("result") not in {None, "FAILURE", "SUCCESS", "ABORTED", "UNSTABLE"}:
             log().error("Build result has unexpected value %s", obj.get("result"))
 
+        this_parameters = params_from(
+            build_info=obj,
+            action_name="ParametersAction",
+            item_name="parameters"
+        )
+        path_hashes = split_params(cast(str, this_parameters.get("DEPENDENCY_PATH_HASHES", "")))
+
         return {
             **obj,
             **{
                 "timestamp": obj["timestamp"] // 1000,
                 "duration": obj["duration"] // 1000,
-                "parameters": params_from(obj, "ParametersAction", "parameters"),
-                "path_hashes": cast(
-                    Mapping[str, str],
-                    params_from(obj, "CustomBuildPropertiesAction", "properties").get(
-                        "path_hashes", {}
-                    ),
-                ),
+                "parameters": this_parameters,
+                "path_hashes": path_hashes,
                 "artifacts": [
                     cast(Mapping[str, str], a)["relativePath"]
                     for a in cast(GenMapArray, obj["artifacts"])
