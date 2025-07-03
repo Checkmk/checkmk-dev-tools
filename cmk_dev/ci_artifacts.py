@@ -472,16 +472,16 @@ def meets_constraints(
             log().debug(
                 "build #%s has mismatching path hashes: %s != %s",
                 build.number,
-                build.path_hashes,
-                path_hashes,
+                json.dumps(build.path_hashes),
+                json.dumps(path_hashes),
             )
             result = False
     elif not path_hashes_match(expected_path_hashes, path_hashes):
         log().debug(
             "build #%s has been started with mismatching expected path hashes: %s != %s",
             build.number,
-            expected_path_hashes,
-            path_hashes,
+            json.dumps(expected_path_hashes),
+            json.dumps(path_hashes),
         )
         result = False
 
