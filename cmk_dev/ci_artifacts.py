@@ -399,7 +399,7 @@ def find_mismatching_parameters(
     # TODO: find solution for unprovided parameters and default/empty values
     bool_map = {"true": True, "false": False}
     mismatching_parameters = []
-    for key in set(first.keys() | second.keys()) - {"DISABLE_CACHE"}:
+    for key in set(first.keys() | second.keys()):
         if first_val := first.get(key, ""):
             second_val = second.get(key, "")
 
