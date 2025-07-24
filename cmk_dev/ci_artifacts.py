@@ -89,14 +89,14 @@ def parse_args() -> Args:
             dest="poll_queue_sleep",
             type=int,
             default=30,
-            help="Poll sleep time for queued jobs"
+            help="Poll sleep time for queued jobs",
         )
         subparser.add_argument(
             "--poll-sleep",
             dest="poll_sleep",
             type=int,
             default=60,
-            help="Poll sleep time for running jobs"
+            help="Poll sleep time for running jobs",
         )
 
     def apply_request_args(subparser: ArgumentParser) -> None:
@@ -343,12 +343,22 @@ def download_artifacts(
                     downloaded_artifacts.append(artifact)
                 break
             except requests.exceptions.ChunkedEncodingError as e:
-                log().info("Retrying due to chunked encoding error: %s (attempt %d/%d)", e, attempt + 1, MAX_RETRIES)
+                log().info(
+                    "Retrying due to chunked encoding error: %s (attempt %d/%d)",
+                    e,
+                    attempt + 1,
+                    MAX_RETRIES,
+                )
                 if attempt == MAX_RETRIES - 1:
                     raise
             except requests.exceptions.ConnectionError as e:
                 # like "Remote end closed connection without response"
-                log().info("Retrying due to connection error error: %s (attempt %d/%d)", e, attempt + 1, MAX_RETRIES)
+                log().info(
+                    "Retrying due to connection error error: %s (attempt %d/%d)",
+                    e,
+                    attempt + 1,
+                    MAX_RETRIES,
+                )
                 if attempt == MAX_RETRIES - 1:
                     raise
 
@@ -403,7 +413,12 @@ def find_mismatching_parameters(
         if first_val := first.get(key, ""):
             second_val = second.get(key, "")
 
-            assert first_val not in ["TRUE", "FALSE", "True", "False"], "Only groovy lower case bool 'false' or 'true' allowed"
+            assert first_val not in [
+                "TRUE",
+                "FALSE",
+                "True",
+                "False",
+            ], "Only groovy lower case bool 'false' or 'true' allowed"
 
             # apply bool mapping in most stupid way
             if isinstance(first_val, str):
@@ -509,7 +524,9 @@ def meets_constraints(
     return result
 
 
-def build_id_from_queue_item(client: Jenkins, queue_id: QueueId, next_check_sleep: int = 30) -> BuildId:
+def build_id_from_queue_item(
+    client: Jenkins, queue_id: QueueId, next_check_sleep: int = 30
+) -> BuildId:
     """Waits for queue item with given @queue_id to be scheduled and returns Build instance"""
     queue_item = client.get_queue_item(queue_id)
     log().info(
@@ -657,7 +674,12 @@ async def _fn_request_build(args: Args) -> None:
                 )
             )
         else:
-            new_build = await trigger_build(jenkins_client=jenkins_client, job=job, params=new_build_params, next_check_sleep=args.poll_queue_sleep)
+            new_build = await trigger_build(
+                jenkins_client=jenkins_client,
+                job=job,
+                params=new_build_params,
+                next_check_sleep=args.poll_queue_sleep,
+            )
             print(
                 json.dumps(
                     {
@@ -825,7 +847,13 @@ async def identify_matching_build(
             log().info("found matching unfinished build: %s (%s)", build.number, build.url)
             return build
 
-    if matching_item := await find_matching_queue_item(jenkins_client=jenkins_client, job=job, params=params, path_hashes=path_hashes, next_check_sleep=next_check_sleep):
+    if matching_item := await find_matching_queue_item(
+        jenkins_client=jenkins_client,
+        job=job,
+        params=params,
+        path_hashes=path_hashes,
+        next_check_sleep=next_check_sleep,
+    ):
         return await jenkins_client.build_info(job.path, matching_item)
 
     return None
