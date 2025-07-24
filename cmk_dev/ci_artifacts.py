@@ -329,8 +329,8 @@ def download_artifacts(
                 fp_hash,
             )
 
-        MAX_RETRIES = 3
-        for attempt in range(MAX_RETRIES):
+        MAX_RETRIES = 2
+        for attempts_left in range(MAX_RETRIES, -1, -1):
             try:
                 with client._session.get(f"{build.url}artifact/{artifact}", stream=True) as reply:
                     log().debug("download: %s", artifact)
@@ -340,27 +340,18 @@ def download_artifacts(
                         for chunk in reply.iter_content(chunk_size=8192):
                             if chunk:  # Filter out keep-alive chunks
                                 out_file.write(chunk)
+                    log().debug("download: %s - successful", artifact)
                     downloaded_artifacts.append(artifact)
                 break
-            except requests.exceptions.ChunkedEncodingError as e:
-                log().info(
-                    "Retrying due to chunked encoding error: %s (attempt %d/%d)",
-                    e,
-                    attempt + 1,
-                    MAX_RETRIES,
-                )
-                if attempt == MAX_RETRIES - 1:
+            except (
+                requests.exceptions.ChunkedEncodingError,
+                requests.exceptions.ConnectionError,
+            ) as exc:
+                if not attempts_left:
                     raise
-            except requests.exceptions.ConnectionError as e:
-                # like "Remote end closed connection without response"
-                log().info(
-                    "Retrying due to connection error error: %s (attempt %d/%d)",
-                    e,
-                    attempt + 1,
-                    MAX_RETRIES,
+                log().warning(
+                    "download_artifacts() caught %r (%s retries left)", exc, attempts_left
                 )
-                if attempt == MAX_RETRIES - 1:
-                    raise
 
     if not no_remove_others:
         for path in existing_files - set(downloaded_artifacts) - set(skipped_artifacts):
