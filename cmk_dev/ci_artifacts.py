@@ -149,6 +149,12 @@ def parse_args() -> Args:
             action="store_true",
             help="If set, existing files not part of artifacts won't be deleted",
         )
+        subparser.add_argument(
+            "--total-download-timeout",
+            type=int,
+            default=60,
+            help="Time in seconds a download for a single file may take before rising a TimeoutError",
+        )
 
     parser_request = subparsers.add_parser(
         "request", help="Request a build or identify an existing one."
@@ -265,6 +271,7 @@ def download_artifacts(
     client: Jenkins,
     build: Build,
     out_dir: Path,
+    total_download_timeout: int = 60,
     no_remove_others: bool = False,
 ) -> tuple[Sequence[str], Sequence[str]]:
     """Downloads all artifacts listed for given job/build to @out_dir"""
@@ -331,6 +338,7 @@ def download_artifacts(
 
         MAX_RETRIES = 2
         for attempts_left in range(MAX_RETRIES, -1, -1):
+            time_start = time.time()
             try:
                 with client._session.get(f"{build.url}artifact/{artifact}", stream=True) as reply:
                     log().debug("download: %s", artifact)
@@ -338,14 +346,23 @@ def download_artifacts(
                     artifact_filename.parent.mkdir(parents=True, exist_ok=True)
                     with open(artifact_filename, "wb") as out_file:
                         for chunk in reply.iter_content(chunk_size=8192):
+                            if (
+                                current_dl_duration := (time.time() - time_start)
+                            ) > total_download_timeout:
+                                raise TimeoutError(
+                                    f"Downloading of {reply.url} took longer than {total_download_timeout}s"
+                                )
                             if chunk:  # Filter out keep-alive chunks
                                 out_file.write(chunk)
-                    log().debug("download: %s - successful", artifact)
+                    log().debug(
+                        "download: %s - successful (took %.2fs)", artifact, current_dl_duration
+                    )
                     downloaded_artifacts.append(artifact)
                 break
             except (
                 requests.exceptions.ChunkedEncodingError,
                 requests.exceptions.ConnectionError,
+                TimeoutError,
             ) as exc:
                 if not attempts_left:
                     raise
@@ -724,6 +741,7 @@ async def _fn_await_and_handle_build(args: Args) -> None:
                                     jenkins_client.client,
                                     completed_build,
                                     out_dir,
+                                    args.total_download_timeout,
                                     args.no_remove_others,
                                 )
                             )
@@ -790,6 +808,7 @@ async def _fn_fetch(args: Args) -> None:
                         jenkins_client.client,
                         completed_build,
                         out_dir,
+                        args.total_download_timeout,
                         args.no_remove_others,
                     )
                 )
