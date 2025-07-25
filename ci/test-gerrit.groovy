@@ -27,7 +27,12 @@ def main() {
                 usernamePassword(
                     credentialsId: 'jenkins-api-token',
                     usernameVariable: 'JENKINS_USERNAME',
-                    passwordVariable: 'JENKINS_PASSWORD')
+                    passwordVariable: 'JENKINS_PASSWORD',
+                ),
+                string(
+                    credentialsId: 'INFLUXDB-Jenkins-read-official',
+                    variable: 'INFLUXDB_READ_TOKEN',
+                ),
             ]) {
                 stage('Pre-commit hooks') {
                     sh(label: "Pre-commit and run hooks", script: """

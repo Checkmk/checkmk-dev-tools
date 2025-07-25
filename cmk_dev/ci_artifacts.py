@@ -18,15 +18,16 @@ import sys
 import time
 from argparse import ArgumentParser
 from argparse import Namespace as Args
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping, MutableMapping, Sequence
 from contextlib import suppress
 from datetime import datetime
 from itertools import chain
 from pathlib import Path
 from subprocess import check_output
-from typing import Any, Literal, cast
+from typing import Any, List, Literal, cast
 
 import requests
+from influxdb_client import InfluxDBClient  # type: ignore[attr-defined]
 from jenkins import Jenkins
 from trickkiste.logging_helper import apply_common_logging_cli_args, setup_logging
 from trickkiste.misc import compact_dict, cwd, md5from, split_params
@@ -39,6 +40,7 @@ from .jenkins_utils import (
     Job,
     JobParams,
     JobParamValue,
+    JobResult,
     QueueId,
     apply_common_jenkins_cli_args,
     extract_credentials,
@@ -97,6 +99,12 @@ def parse_args() -> Args:
             type=int,
             default=60,
             help="Poll sleep time for running jobs",
+        )
+        subparser.add_argument(
+            "--influxdb",
+            dest="use_influxdb",
+            action="store_true",
+            help="Search in InfluxDB for matching jobs",
         )
 
     def apply_request_args(subparser: ArgumentParser) -> None:
@@ -646,6 +654,7 @@ async def _fn_request_build(args: Args) -> None:
                 path_hashes=compose_path_hashes(args.base_dir, args.dependency_paths),
                 time_constraints=args.time_constraints,
                 next_check_sleep=args.poll_queue_sleep,
+                args=args,
             )
         ):
             print(
@@ -753,6 +762,49 @@ async def _fn_await_and_handle_build(args: Args) -> None:
             )
         )
 
+def query_matching_builds(influx_client: InfluxDBClient, bucket: str, project_path: str, fields: List[str], time_range: str = "start: -3h", org: str = "jenkins") -> List[Mapping[str, Any]]:
+    """Query InfluxDB for builds with fields of interest"""
+    fields_of_interest = " or ".join(f'''r["_field"] == "{this_field}"''' for this_field in fields)
+    # someone with better understanding of Flux might fix and optimize this query
+    query = f'''from(bucket: "{bucket}")
+      |> range({time_range})
+      |> filter(fn: (r) => {fields_of_interest})
+      |> filter(fn: (r) => r["project_path"] == "{project_path}")
+      |> filter(fn: (r) => r["_measurement"] == "custom_jenkins_job_params")
+      |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
+    '''
+
+    this_data: List[Mapping[str, Any]] = []
+    keys_to_skip = (
+        # do not add non JSON processable datetime objects
+        '_time', '_stop', '_start',
+        # do not add common meta data infos
+        'instance', 'table', 'result',
+        # do not add name of measurement
+        '_measurement',
+    )
+
+    try:
+        query_api = influx_client.query_api()
+        response = query_api.query(query, org=org)
+
+        for record in response[0].records:
+            row_dict = {}
+
+            # Always add time column
+            row_dict['time'] = record.get_time().isoformat()    # type: ignore[no-untyped-call]
+
+            # Add values for each field
+            for key, value in record.values.items():
+                if key not in keys_to_skip:
+                    row_dict[key] = value
+
+            this_data.append(row_dict)
+
+        return this_data
+    except Exception as e:
+        log().error(f"Error querying InfluxDB: {e}")
+        return []
 
 async def _fn_fetch(args: Args) -> None:
     """Entry point for fetching (request and download combined) artifacts"""
@@ -774,6 +826,7 @@ async def _fn_fetch(args: Args) -> None:
                 path_hashes=compose_path_hashes(args.base_dir, args.dependency_paths),
                 time_constraints=args.time_constraints,
                 next_check_sleep=args.poll_queue_sleep,
+                args=args,
             )
         )
         if args.omit_new_build and not matching_build:
@@ -835,13 +888,99 @@ async def identify_matching_build(
     path_hashes: PathHashes,
     time_constraints: None | str,
     next_check_sleep: int = 30,
+    args: None | Args = None,
 ) -> None | Build:
     """Find an existing build (finished, still running or queued) which matches our
     requirements specified by @job_full_path matching @params and
     @time_constraints.
     """
     # pylint: disable=too-many-locals
+    if isinstance(args, Args) and args.use_influxdb:
+        log().info("Start finding matching builds in InfluxDB")
+        influxdb_config = extract_credentials(credentials=args.credentials, config_section="influxdb")
 
+        this_org = "jenkins"
+        this_port = f":{influxdb_config.get('port')}" if "port" in influxdb_config else ""
+        influx_client = InfluxDBClient(
+            url=f"{influxdb_config['url']}{this_port}",
+            token=influxdb_config['password'],
+            org=this_org,
+        )
+
+        # query the fields matching the given parameter
+        fields = list(args.params[0].keys())
+        # additionally query the job result and number
+        fields += ["build_result", "build_number"]
+
+        matching_builds = query_matching_builds(
+            influx_client=influx_client,
+            bucket="job_bucket",
+            project_path=args.job,
+            fields=fields,
+            time_range=f"start: {datetime.now().strftime('%Y-%m-%d')}T00:00:00Z, stop: now()" if time_constraints == "today" else "start: 0, stop: now()",
+            org=this_org,
+        )
+
+        build: Build
+        builds: MutableMapping[int, Build] = {}
+        for this_build in matching_builds:
+            # if a job with this build number exists already, update it in the dict
+            # be prepared for timestamps with or without milliseconds
+            try:
+                this_timestamp = int(datetime.strptime(this_build["time"].split('+')[0], '%Y-%m-%dT%H:%M:%S.%f').timestamp() * 1000)
+            except ValueError as e:
+                if "does not match format" in str(e):
+                    this_timestamp = int(datetime.strptime(this_build["time"].split('+')[0], '%Y-%m-%dT%H:%M:%S').timestamp() * 1000)
+                else:
+                    this_timestamp = 0
+            this_duration = 0
+            build_result: JobResult = this_build.get("build_result", "FAILURE")
+            build_number: int = this_build.get("build_number", 0)
+
+            if existing_job := builds.get(build_number):
+                # existing timestamp is stored in seconds already
+                this_duration = abs(existing_job.timestamp * 1000 - this_timestamp)
+                # update timestamp to earlier timestamp, as this is the real start timestamp of the job
+                this_timestamp = min(this_timestamp, existing_job.timestamp) * 1000
+
+            # reconstruct a Build object as good as possible
+            builds[build_number] = Build(
+                url=f"{jenkins_client.client.server}/job/{'/job/'.join(p for p in this_build['project_path'].split('/'))}/{build_number}",  # type: ignore[attr-defined]
+                number=build_number,
+                timestamp=this_timestamp,
+                duration=this_duration,
+                result=build_result if isinstance(build_result, str) else None,
+                path_hashes={},
+                artifacts=[],
+                inProgress=True if build_result == "RUNNING" else False,
+                parameters={k: v if v is not None else "" for k, v in this_build.items() if isinstance(k, str) and k.isupper()}
+            )
+
+        log().info(f"Got {len(matching_builds)} InfluxDB job history entries of today, generated {len(builds)} builds to check")
+
+        # ugly code duplication incomming, rework this to a dedicated function
+        for build in list(builds.values()):
+            if meets_constraints(build, params, time_constraints, path_hashes):
+                log().info("found matching (may finished) build: %s (%s)", build.number, build.url)
+                return build
+
+        if matching_item := await find_matching_queue_item(
+            jenkins_client=jenkins_client,
+            job=job,
+            params=params,
+            path_hashes=path_hashes,
+            next_check_sleep=next_check_sleep,
+        ):
+            return await jenkins_client.build_info(job.path, matching_item)
+
+        # exit here with no matching result if
+        # - the InfluxDB connection was a success
+        # - and some data was found by the query
+        # otherwise fall back to the old Jenkins job history crawling
+        if influx_client.health().status == "pass" and matching_builds:
+            return None
+
+    log().debug("Start finding matching build via Jenkins API")
     # fetch a job's build history first
     await job.expand(jenkins_client)
 
@@ -1020,7 +1159,6 @@ def main() -> None:
         setup_logging(
             logger=log(),
             level=args.log_level,
-            show_time=False,
             show_name=False,
             show_funcname=False,
         )

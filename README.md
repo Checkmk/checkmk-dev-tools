@@ -20,6 +20,8 @@ Install it locally using `pip`:
 
 ### General
 
+#### Jenkins
+
 For tools interacting with Jenkins an API key, username and URL to Jenkins has to be provided with `~/.config/jenkins_jobs/jenkins_jobs.ini` otherwise those parameters have to be specified explicitly.
 
 This is a template of the `jenkins_jobs.ini` file
@@ -32,6 +34,41 @@ user=carl.lama
 password=API_KEY_NOT_YOUR_PASSWORD
 url=https://JENKINS_URL.tld
 query_plugins_info=False
+```
+
+#### InfluxDB
+
+`ci-artifacts` can also be used with the [InfluxDB plugin](https://plugins.jenkins.io/influxdb/) storing a history of job builds, their result and used parameters. To use the InfluxDB as backend over the Jenkins job REST API, extend the above `jenkins_jobs.ini` config file with this additional section. The `port` is optional.
+
+```
+[influxdb]
+password=TOKEN_NOT_YOUR_PASSWORD
+url=https://INFLUXDB.tld
+port=8086
+```
+
+The usage of the InfluxDB is enabled with the optional `--influxdb` argument.
+
+Use the Groovy code snippet in a jobs to post all relevant data to the (hardcoded) bucket `job_bucket` of the org `jenkins`. It has to be used at the very beginning of the job with `build_status` set to `PROGRESS` and at the very end of the job to post another measurement with the final build result. The total job runtime will be calculated as the difference between the first and the second (last) post.
+
+```
+def buildData = [:];
+params.each { paramKey, paramValue ->
+    buildData[paramKey] = paramValue;
+}
+
+// === IMPORTANT ===
+// use 'PROGRESS' at the begin of a job
+// use 'currentBuild.result' at the closest possible end of a job
+// buildData['build_status'] = 'PROGRESS';
+// buildData['build_result'] = currentBuild.result;
+// === IMPORTANT ===
+
+influxDbPublisher(
+    selectedTarget: "YOUR_TARGET_NAME", // Use value configured at the plugin
+    customData: buildData,
+    measurementName: "jenkins_job_params", // required, no custom value possible yet
+);
 ```
 
 ### `ci-artifacts`

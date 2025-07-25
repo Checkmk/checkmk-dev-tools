@@ -21,13 +21,15 @@ def current_commit(path: Path = Path(".")) -> str:
 def jenkins_config_file_exists(path: Path = Path(".config/jenkins_jobs/jenkins_jobs.ini")) -> bool:
     return (Path.home() / path).exists()
 
-def build_base_command(subcommand: str) -> List[str]:
+def build_base_command(subcommand: str, with_influxdb: bool = False) -> List[str]:
     command = [CI_ARTIFACTS_COMMAND] + LOG_COMMAND
     if not jenkins_config_file_exists():
-        command.extend(["--credentials", "url_env=JENKINS_URL,username_env=JENKINS_USERNAME,password_env=JENKINS_PASSWORD"])
+        command.extend(["--credentials", f"url_env=JENKINS_URL,username_env=JENKINS_USERNAME,password_env=JENKINS_PASSWORD{',influxdb_url_env=INFLUX_URL,influxdb_password_env=INFLUXDB_READ_TOKEN' if with_influxdb else ''}"])
     command.append(subcommand)
     command.append(VALIDATION_JOB)
     command.append(f"--params=CUSTOM_GIT_REF={current_commit()},CIPARAM_BISECT_COMMENT={subcommand}")
+    if with_influxdb:
+        command.append("--influxdb")
 
     return command
 
@@ -169,6 +171,13 @@ def test_request() -> None:
     assert isinstance(second_response, dict)
     assert second_response.get("existing", False)
     assert second_response.get("existing", {}).keys() == second_expectation.get("existing", {}).keys()
+
+    command = build_base_command(subcommand=subcommand, with_influxdb=True)
+    influxdb_response = parse_response(command=command)
+
+    assert isinstance(influxdb_response, dict)
+    assert influxdb_response.get("existing", False)
+    assert influxdb_response.get("existing", {}).keys() == second_expectation.get("existing", {}).keys()
 
 def test_fetch() -> None:
     command = build_base_command(subcommand="fetch")

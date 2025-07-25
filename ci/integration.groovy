@@ -37,7 +37,12 @@ def main() {
                 usernamePassword(
                     credentialsId: 'jenkins-api-token',
                     usernameVariable: 'JENKINS_USERNAME',
-                    passwordVariable: 'JENKINS_PASSWORD')
+                    passwordVariable: 'JENKINS_PASSWORD'
+                ),
+                string(
+                    credentialsId: 'INFLUXDB-Jenkins-read-official',
+                    variable: 'INFLUXDB_READ_TOKEN',
+                ),
             ]) {
                 stage("Test subcommands") {
                     sh(label: "Test subcommand", script: """

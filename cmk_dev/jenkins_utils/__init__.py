@@ -37,7 +37,7 @@ JobParams = MutableMapping[str, JobParamValue]
 QueueId = int
 BuildId = int
 
-JobResult = Literal["FAILURE", "SUCCESS", "ABORTED", "UNSTABLE"]
+JobResult = Literal["FAILURE", "SUCCESS", "ABORTED", "UNSTABLE", "PROGRESS", "RUNNING"]
 
 
 def log() -> logging.Logger:
@@ -107,14 +107,18 @@ class Build(SimpleBuild):
     def correct(cls, obj: Json[dict[str, Any]]) -> Json[dict[str, Any]]:
         """Refactor init to match our excpectations"""
 
-        if obj.get("result") not in {None, "FAILURE", "SUCCESS", "ABORTED", "UNSTABLE"}:
+        if obj.get("result") not in {None, "FAILURE", "SUCCESS", "ABORTED", "UNSTABLE", "RUNNING", "PROGRESS"}:
             log().error("Build result has unexpected value %s", obj.get("result"))
 
-        this_parameters = params_from(
-            build_info=obj,
-            action_name="ParametersAction",
-            item_name="parameters"
-        )
+        # hack to create Job build with InfluxDB data
+        if "parameters" in obj:
+            this_parameters = obj["parameters"]
+        else:
+            this_parameters = params_from(
+                build_info=obj,
+                action_name="ParametersAction",
+                item_name="parameters"
+            )
         path_hashes = split_params(cast(str, this_parameters.get("DEPENDENCY_PATH_HASHES", "")))
 
         return {
