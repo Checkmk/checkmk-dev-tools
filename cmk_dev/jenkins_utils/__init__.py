@@ -352,6 +352,8 @@ def apply_common_jenkins_cli_args(parser: ArgumentParser) -> None:
         help=(
             "Provide 'url', 'username' and 'password' "
             "or 'username_env', 'url_env' and 'password_env' respectively."
+            "Optionally 'influxdb_url', 'influxdb_password' and 'influxdb_port' "
+            "or 'influxdb_url_env', 'influxdb_password_env' and 'influxdb_port_env' if '--influxdb' is used"
             " If no credentials are provided, the JJB config at "
             " ~/.config/jenkins_jobs/jenkins_jobs.ini is being used."
         ),
@@ -361,34 +363,67 @@ def apply_common_jenkins_cli_args(parser: ArgumentParser) -> None:
     )
 
 
-def extract_credentials(credentials: None | Mapping[str, str] = None) -> Mapping[str, str]:
+def filter_by_prefix(dictionary: MutableMapping[str, str], unallowed_prefixes: list[str], strip_prefix: str) -> Mapping[str, str]:
+    """Return a new dictionary containing only keys without their prefix that do not start with any of the given prefixes."""
+    return {
+        key.replace(strip_prefix, ""): value for key, value in dictionary.items() if not any(key.startswith(prefix) for prefix in unallowed_prefixes)
+    }
+
+
+def extract_credentials(credentials: None | Mapping[str, str] = None, credentials_file: str = "~/.config/jenkins_jobs/jenkins_jobs.ini", config_section: str = "jenkins") -> Mapping[str, str]:
     """Turns the information provided via --credentials into actual values"""
-    if credentials and (
-        any(key in credentials for key in ("url", "url_env"))
-        and any(key in credentials for key in ("username", "username_env"))
-        and any(key in credentials for key in ("password", "password_env"))
-    ):
+    extracted_creds: MutableMapping[str, str] = {}
+    section_settings: Mapping[str, Mapping[str, tuple[str, ...]]] = {
+        "jenkins": {"required_keys": ("url", "username", "password"),},
+        "influxdb": {"required_keys": ("url", "password"),},
+        "influxdb_testing": {"required_keys": ("url", "password"),},
+    }
+
+    if credentials:
+        creds_keys = [key.removesuffix("_env") for key in credentials.keys()]
         try:
-            return {
-                "url": credentials.get("url") or os.environ[credentials.get("url_env", "")],
-                "username": credentials.get("username")
-                or os.environ[credentials.get("username_env", "")],
-                "password": credentials.get("password")
-                or os.environ[credentials.get("password_env", "")],
-            }
+            for key in creds_keys:
+                extracted_creds[key] = credentials.get(key) or os.environ[credentials.get(f"{key}_env", "")]
         except KeyError as exc:
             raise Fatal(f"Requested environment variable {exc} is not defined") from exc
+
+        log().debug(f"pure extracted_creds: {extracted_creds}")
+        # Ensure all keys required to interact with a remote service are extracted
+        if all(key in extracted_creds for key in section_settings[config_section]["required_keys"]):
+            # AugmentedJenkinsClient only accepts a specific set of keywords
+            unallowed_prefixes = [f"{x}_" for x in section_settings.keys() if x != config_section]
+            if config_section != "jenkins":
+                # remove all keys defined for jenkins. This is a fix for not prefixing them initially while this tool was created
+                unallowed_prefixes += list(section_settings["jenkins"]["required_keys"])
+            return filter_by_prefix(dictionary=extracted_creds, unallowed_prefixes=unallowed_prefixes, strip_prefix=f"{config_section}_")
+        else:
+            log().error("Not all required keys have been loaded from env")
 
     log().debug(
         "Credentials haven't been (fully) provided via --credentials, trying JJB config instead"
     )
-    jjb_config = ConfigParser()
-    jjb_config.read(Path("~/.config/jenkins_jobs/jenkins_jobs.ini").expanduser())
-    return {
-        "url": jjb_config["jenkins"]["url"],
-        "username": jjb_config["jenkins"]["user"],
-        "password": jjb_config["jenkins"]["password"],
+    loaded_config = ConfigParser()
+    loaded_config.read(Path(credentials_file).expanduser())
+
+    # forget whatever you extracted from env variables
+    extracted_creds.clear()
+    extracted_creds = {
+        "url": loaded_config[config_section]["url"],
+        "password": loaded_config[config_section]["password"],
+        # special handling for a may configured InfluxDB port
+        **(
+            {"port": loaded_config[config_section]["port"]} if "port" in loaded_config[config_section] else {}
+        ),
+        # very special handling as the Jenkins user is called "user" in the config file, but the AugmentedJenkinsClient expects "username"
+        **(
+            {"username": loaded_config[config_section]["user"]} if (config_section == "jenkins" and "user" in loaded_config[config_section]) else {}
+        )
     }
+
+    if not all(key in extracted_creds for key in section_settings[config_section]["required_keys"]):
+        raise Fatal("Not all required keys could be loaded. Neither from env nor from file")
+
+    return extracted_creds
 
 
 class AugmentedJenkinsClient:
