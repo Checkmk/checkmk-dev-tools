@@ -37,6 +37,7 @@ python-jenkins = "~=1.8.3" # needed for ci-artifacts
 pydantic = "^2"            # jenkins_utils/*, docker_shaper/*
 rich = "*"                 # activity_from_fs.py, docker_shaper/*
 retry = "*"
+influxdb-client = "^1"     # ci_artifacs.py with InfluxDB
 
 trickkiste = "^0.2.1"
 # trickkiste  = {path = "../../_HOME/trickkiste", develop = true}
