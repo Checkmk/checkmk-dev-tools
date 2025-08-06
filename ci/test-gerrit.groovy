@@ -17,6 +17,7 @@ def main() {
         |Reason:            ${env.GERRIT_EVENT_TYPE}<br>
         |Commit SHA:        ${env.GERRIT_PATCHSET_REVISION}<br>
         |Patchset Number:   ${env.GERRIT_PATCHSET_NUMBER}<br>
+        |Change Number:     ${env.GERRIT_CHANGE_NUMBER}<br>
         |""".stripMargin());
 
     dir("${checkout_dir}") {
@@ -75,7 +76,7 @@ def main() {
                         --changelog_file changelog.md \
                         --version_file cmk_dev/version.py \
                         --version_file_type py \
-                        --additional_version_info="-rc${env.GERRIT_PATCHSET_NUMBER}" \
+                        --additional_version_info="-rc${env.GERRIT_PATCHSET_NUMBER}.dev${env.GERRIT_CHANGE_NUMBER}" \
                         --print \
                         --output version.json
                 """);
@@ -118,9 +119,9 @@ def main() {
                             sed -i "s#CHANGE_ME_I_AM_A_CHANGELOG#release/\${CHANGELOG_VERSION}#" pyproject.toml
 
                             # create and publish tag
-                            git tag -a v\$CHANGELOG_VERSION-rc${env.GERRIT_PATCHSET_NUMBER} -m "v\$CHANGELOG_VERSION-rc${env.GERRIT_PATCHSET_NUMBER}"
+                            git tag -a v\$CHANGELOG_VERSION-rc${env.GERRIT_PATCHSET_NUMBER}.dev${env.GERRIT_CHANGE_NUMBER} -m "v\$CHANGELOG_VERSION-rc${env.GERRIT_PATCHSET_NUMBER}.dev${env.GERRIT_CHANGE_NUMBER}"
                             git tag --list
-                            git push origin tag v\$CHANGELOG_VERSION-rc${env.GERRIT_PATCHSET_NUMBER}
+                            git push origin tag v\$CHANGELOG_VERSION-rc${env.GERRIT_PATCHSET_NUMBER}.dev${env.GERRIT_CHANGE_NUMBER}
                         """);
                     }
                 }
