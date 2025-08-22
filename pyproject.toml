@@ -3,15 +3,13 @@ name = "checkmk-dev-tools"
 version = "0.0.0" # will-be-updated-automatically
 description = "Checkmk DevOps tools"
 authors = [
-  "Frans Fürst <frans.fuerst@checkmk.com>",
-  "Jonas Scharpf <jonas.scharpf@checkmk.com>",
-  "Niko Wenselowski <niko.wenselowski@checkmk.com>",
-  "Timotheus Bachinger <timotheus.bachinger@checkmk.com>"
+    "Frans Fürst <frans.fuerst@checkmk.com>",
+    "Jonas Scharpf <jonas.scharpf@checkmk.com>",
+    "Niko Wenselowski <niko.wenselowski@checkmk.com>",
+    "Timotheus Bachinger <timotheus.bachinger@checkmk.com>",
 ]
 readme = "README.md"
-packages = [
-  {include = "cmk_dev/**/*.py"}
-]
+packages = [{ include = "cmk_dev/**/*.py" }]
 exclude = ["cmk_dev/out"]
 
 [tool.poetry.urls]
@@ -45,8 +43,8 @@ trickkiste = "^0.2.1"
 
 # actual dependencies, but kept back
 [tool.poetry.group.dev.dependencies]
-aiofiles = "^23.2.1"  # procmon.py
-ttrace = "^0.1.13"  # procmon.py
+aiofiles = "^23.2.1" # procmon.py
+ttrace = "^0.1.13"   # procmon.py
 
 # [tool.poetry.group.dev.dependencies]
 pytest = "*"
@@ -68,9 +66,7 @@ pre-commit = "*"
 # it is not enough to add it to the projects pyproject.toml file
 [tool.poetry-dynamic-versioning]
 enable = true
-format-jinja-imports = [
-  { module = "subprocess", item = "check_output" },
-]
+format-jinja-imports = [{ module = "subprocess", item = "check_output" }]
 format-jinja = """{{ check_output(["python3", "-c", "from pathlib import Path; exec(Path('cmk_dev/version.py').read_text()); print(__version__)"]).decode().strip() }}"""
 # format-jinja = "{{ env.get('PROJECT_VERSION') }}"
 
@@ -106,7 +102,7 @@ ignore = [
 
 [tool.mypy]
 python_version = "3.11"
-strict="True"
+strict = "True"
 disallow_untyped_defs = "True"
 disallow_any_unimported = "True"
 no_implicit_optional = "True"
@@ -114,7 +110,7 @@ check_untyped_defs = "True"
 warn_return_any = "True"
 warn_unused_ignores = "True"
 show_error_codes = "True"
-mypy_path="typeshed"
+mypy_path = "typeshed"
 exclude = [
     # folders
     '\.venv',
