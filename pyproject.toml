@@ -34,11 +34,10 @@ pycinfo = 'cmk_dev.pycinfo:main'
 lockable-resources = 'cmk_dev.lockable_resources:main'
 
 [tool.poetry.dependencies]
-python = "^3.10.4"  #   currently lowest supported Python version (CI Build Nodes)
-# to be changed back to "python-jenkins" as soon as an official release is available
-python-jenkins-checkmk-retry-parameter = "1.8.3.dev8" # needed for ci-artifacts
-pydantic = "^2" # jenkins_utils/*, docker_shaper/*
-rich = "*"  # activity_from_fs.py, docker_shaper/*
+python = "^3.10.4"         # currently lowest supported Python version (CI Build Nodes)
+python-jenkins = "~=1.8.3" # needed for ci-artifacts
+pydantic = "^2"            # jenkins_utils/*, docker_shaper/*
+rich = "*"                 # activity_from_fs.py, docker_shaper/*
 retry = "*"
 
 trickkiste = "^0.2.1"
