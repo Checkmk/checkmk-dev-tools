@@ -6,7 +6,7 @@ from subprocess import check_output
 from typing import Any, Dict, List
 
 CI_ARTIFACTS_COMMAND = "ci-artifacts"
-LOG_COMMAND = ["--log-level", "info"]
+LOG_COMMAND = ["--log-level", "debug"]
 VALIDATION_JOB = "python-packages/checkmk_dev_tools/cv/test-job-checkmk-dev-tools"
 
 def current_commit(path: Path = Path(".")) -> str:

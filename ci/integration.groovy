@@ -29,6 +29,7 @@ def main() {
                     poetry run ci-artifacts --version
 
                     poetry run ci-artifacts --help
+                    poetry run ci-artifacts validate --help
                 """);
             }
 
@@ -40,7 +41,7 @@ def main() {
             ]) {
                 stage("Test subcommands") {
                     sh(label: "Test subcommand", script: """
-                        poetry run pytest -v
+                        poetry run pytest -vvvvv -s
                     """);
                 }
             }
