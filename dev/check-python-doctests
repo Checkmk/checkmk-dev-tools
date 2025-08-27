@@ -6,7 +6,7 @@
 # run from root of current project
 cd "$(dirname "$(dirname "$(realpath "$0")")")" || exit 1
 
-"dev/run-in-venv" python -m pytest --doctest-modules "$@"
+"dev/run-in-venv" python -m pytest --doctest-modules --ignore-glob="tests/*" "$@"
 
 if [[ $? == @("0"|"5") ]]; then
     exit 0
