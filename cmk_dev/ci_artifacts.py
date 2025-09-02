@@ -1153,8 +1153,8 @@ def main() -> None:
         # for some reasons terminal type and properties are not recognized correctly by rich,
         # so 'temporarily' we force width and color
         if "CI" in os.environ:
-            os.environ["FORCE_COLOR"] = "true"
-            os.environ["COLUMNS"] = "200"
+            os.environ["FORCE_COLOR"] = os.getenv("FORCE_COLOR", "true")
+            os.environ["COLUMNS"] = os.getenv("COLUMNS", "200")
 
         setup_logging(
             logger=log(),
