@@ -464,7 +464,7 @@ def meets_constraints(
     result = True
 
     # Prune if the build already failed (might still be ongoing)
-    if build.result not in {None, "SUCCESS"}:
+    if build.result not in {None, "SUCCESS", "RUNNING"}:
         log().debug("build #%s result was: %s", build.number, build.result)
         return False
 
@@ -964,6 +964,9 @@ async def identify_matching_build(
                 log().info("found matching (may finished) build: %s (%s)", build.number, build.url)
                 return build
 
+        log().debug(f"Checked {builds} to find a match, but did not find anything valid")
+
+        log().debug("Checking queued items with the Jenkins API for %s", params)
         if matching_item := await find_matching_queue_item(
             jenkins_client=jenkins_client,
             job=job,
@@ -971,6 +974,7 @@ async def identify_matching_build(
             path_hashes=path_hashes,
             next_check_sleep=next_check_sleep,
         ):
+            log().debug("Found queued item %s", matching_item)
             return await jenkins_client.build_info(job.path, matching_item)
 
         # exit here with no matching result if
