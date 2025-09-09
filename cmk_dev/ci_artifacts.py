@@ -964,6 +964,7 @@ async def identify_matching_build(
                 log().info("found matching (may finished) build: %s (%s)", build.number, build.url)
                 return build
 
+        log().debug("Checking queued items with the Jenkins API now")
         if matching_item := await find_matching_queue_item(
             jenkins_client=jenkins_client,
             job=job,
@@ -971,14 +972,8 @@ async def identify_matching_build(
             path_hashes=path_hashes,
             next_check_sleep=next_check_sleep,
         ):
+            log().debug("Found queued item")
             return await jenkins_client.build_info(job.path, matching_item)
-
-        # exit here with no matching result if
-        # - the InfluxDB connection was a success
-        # - and some data was found by the query
-        # otherwise fall back to the old Jenkins job history crawling
-        if influx_client.health().status == "pass" and matching_builds:
-            return None
 
     log().debug("Start finding matching build via Jenkins API")
     # fetch a job's build history first
