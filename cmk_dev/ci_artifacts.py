@@ -966,7 +966,7 @@ async def identify_matching_build(
 
         log().debug(f"Checked {builds} to find a match, but did not find anything valid")
 
-        log().debug("Checking queued items with the Jenkins API for %s", params)
+        log().debug("Checking queued items with the Jenkins API")
         if matching_item := await find_matching_queue_item(
             jenkins_client=jenkins_client,
             job=job,
