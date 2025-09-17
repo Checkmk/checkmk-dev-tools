@@ -1179,7 +1179,8 @@ def main() -> None:
                 asyncio.run(stop_build(args=args, ongoing_build_info=ongoing_build_info))
                 log().debug("Stopping ongoing job")
     except Fatal as exc:
-        print(exc, file=sys.stderr)
+        log().error(f"Fatal exception: {exc}")
+        print(json.dumps({}), file=sys.stderr)  # always return a valid JSON to the caller
         raise SystemExit(-1) from exc
 
 
