@@ -69,7 +69,10 @@ def parse_args() -> Args:
 
     parser.add_argument("--version", action="version", version=__version__)
 
-    parser_info = subparsers.add_parser("info")
+    parser_info = subparsers.add_parser(
+        "info",
+        help="Print build information of the last 100 builds of a job.",
+    )
     parser_info.set_defaults(func=_fn_info)
     parser_info.add_argument(
         "job",
