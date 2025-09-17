@@ -179,6 +179,26 @@ Overwrite default poll interval checking the status of a running Jenkins job.
 
 Overwrite default poll interval checking the status of a queued Jenkins job.
 
+##### Info
+
+Request helpful informations about a Jenkins job.
+
+Do use this command with care! Its output is quite massive and causes a lot of API calls towards Jenkins.
+
+```sh
+ci-artifacts --log-level debug \
+    info checkmk/master/winagt-build
+```
+
+```
+DD │ 2025-09-17 11:44:36 │ fetch job info for checkmk/master/winagt-build
+...
+DD │ 2025-09-17 11:45:30 │ fetch build log for checkmk/master/winagt-build:16263
+Job('checkmk/master/winagt-build', 100 builds)
+  - 16362: Build(nr=16362, running/None, started: 2025.09.17-11:32:40, took 00d:00h:00m, params={DISABLE_CACHE=False, VERSION=daily, CIPARAM_CLEANUP_WORKSPACE=0 - none, CUSTOM_GIT_REF=93ae7d1a..}, hashes={})
+...
+```
+
 ##### Request
 
 Like `fetch` but with the optional parameter `--passive` which outputs the informations needed to trigger a build instead of triggering the build.
