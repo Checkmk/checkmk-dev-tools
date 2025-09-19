@@ -303,7 +303,8 @@ def download_artifacts(
     log().debug("fetch artifact fingerprints from %s", fp_url)
 
     if not build.artifacts:
-        raise Fatal("Job has no artifacts!")
+        log().info("No artifacts available for this build")
+        return [""], [""]
 
     # create new fingerprints from artifact names an fingerprint hashes, keeping their order
     artifact_hashes = dict(
