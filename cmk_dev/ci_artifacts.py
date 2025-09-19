@@ -109,6 +109,12 @@ def parse_args() -> Args:
             action="store_true",
             help="Search in InfluxDB for matching jobs",
         )
+        subparser.add_argument(
+            "--no-raise",
+            dest="no_raise",
+            action="store_true",
+            help="Do not raise an Exception in case of errors",
+        )
 
     def apply_request_args(subparser: ArgumentParser) -> None:
         subparser.add_argument(
@@ -284,7 +290,8 @@ def download_artifacts(
     out_dir: Path,
     total_download_timeout: int = 60,
     no_remove_others: bool = False,
-) -> tuple[Sequence[str], Sequence[str]]:
+    no_raise: bool = False,
+) -> tuple[Sequence[str | None], Sequence[str | None]]:
     """Downloads all artifacts listed for given job/build to @out_dir"""
     # pylint: disable=protected-access
     # pylint: disable=too-many-locals
@@ -303,7 +310,11 @@ def download_artifacts(
     log().debug("fetch artifact fingerprints from %s", fp_url)
 
     if not build.artifacts:
-        raise Fatal("Job has no artifacts!")
+        log().info("No artifacts available for this build")
+        if no_raise:
+            return [], []
+        else:
+            raise Fatal("Job has no artifacts!")
 
     # create new fingerprints from artifact names an fingerprint hashes, keeping their order
     artifact_hashes = dict(
@@ -755,6 +766,7 @@ async def _fn_await_and_handle_build(args: Args) -> None:
                                     out_dir,
                                     args.total_download_timeout,
                                     args.no_remove_others,
+                                    args.no_raise,
                                 )
                             )
                         )
@@ -866,6 +878,7 @@ async def _fn_fetch(args: Args) -> None:
                         out_dir,
                         args.total_download_timeout,
                         args.no_remove_others,
+                        args.no_raise
                     )
                 )
             )
