@@ -5,8 +5,6 @@ Copyright (C) 2024 Checkmk GmbH - License: GNU General Public License v2
 This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
 conditions defined in the file COPYING, which is part of this source code package.
 """
-# pylint: disable=too-few-public-methods
-# pylint: disable=fixme
 
 import asyncio
 import json
@@ -715,7 +713,7 @@ class AugmentedJenkinsClient:
     def _check_connection(self) -> "AugmentedJenkinsClient":
         whoami = (self.sync_whoami())["id"]
         username = self.client.auth and self.client.auth.username.decode() or ""
-        if not whoami == username:
+        if whoami != username:
             log().warning(
                 "client.get_whoami()=%s does not match jenkins_config['user']=%s", whoami, username
             )

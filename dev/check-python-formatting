@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+
+# This script is just here to run format checkers in a standard
+# single-point-of-truth way. Feel free to run it manually instead.
+
+set -e
+
+if [ "$#" -gt 0 ]; then
+    ARGS=(--files "$@")
+else
+    ARGS=(--all-files)
+fi
+
+# run from root of current project
+cd "$(dirname "$(dirname "$(realpath "$0")")")" || exit 1
+
+# run formatters in a row - files can be provided and we don't need arguments,
+# so use the pre-commit command
+"dev/run-in-venv" pre-commit run check-python-formatting "${ARGS[@]}"
+"dev/run-in-venv" pre-commit run check-python-isort "${ARGS[@]}"

@@ -3,7 +3,7 @@
 /// file: test-gerrit.groovy
 
 def main() {
-    def image_name = "python-curl-poetry";
+    def image_name = "python-curl-uv";
     def dockerfile = "ci/Dockerfile";
     def docker_args = "${mount_reference_repo_dir}";
     def release_new_version_flag = false;
@@ -45,22 +45,20 @@ def main() {
             stage("Validate entrypoints") {
                 sh(label: "run entrypoints", script: """
                     set -o pipefail
-                    poetry --version
-
-                    poetry run activity-from-fs --help
-                    poetry run binreplace --help
-                    poetry run check-rpath --help
-                    poetry run ci-artifacts --help
-                    poetry run cmk-dev --help
-                    poetry run cpumon --help
-                    poetry run job-resource-usage --help
-                    poetry run last-access --help
-                    poetry run lockable-resources --help
+                    dev/run-in-venv activity-from-fs --help
+                    dev/run-in-venv binreplace --help
+                    dev/run-in-venv check-rpath --help
+                    dev/run-in-venv ci-artifacts --help
+                    dev/run-in-venv cmk-dev --help
+                    dev/run-in-venv cpumon --help
+                    dev/run-in-venv job-resource-usage --help
+                    dev/run-in-venv last-access --help
+                    dev/run-in-venv lockable-resources --help
 
                     # scripts without argparser or some other reason
-                    # poetry run decent-output --help
-                    # poetry run procmon --help
-                    # poetry run pycinfo --help
+                    # dev/run-in-venv decent-output --help
+                    # dev/run-in-venv procmon --help
+                    # dev/run-in-venv pycinfo --help
                 """);
             }
 
@@ -135,10 +133,9 @@ def main() {
             stage("Build package") {
                 sh(label: "build package", script: """
                     # see comment in pyproject.toml
-                    poetry self add "poetry-dynamic-versioning[plugin]==1.4.1"
                     rm -rf dist/*
-                    poetry build
-                    poetry run twine check dist/*
+                    uv build
+                    dev/run-in-venv twine check dist/*
                     python3 -m pip uninstall -y checkmk_dev_tools
                     python3 -m pip install --pre --user dist/checkmk_dev_tools-*-py3-none-any.whl
                 """);
@@ -149,9 +146,9 @@ def main() {
                     string(credentialsId: 'TEST_PYPI_API_TOKEN_CMK_DEV_TOOLS_ONLY', variable: 'TEST_PYPI_API_TOKEN_CMK_DEV_TOOLS_ONLY')
                 ]) {
                     sh(label: "publish package", script: """
-                        poetry config repositories.testpypi https://test.pypi.org/legacy/
-                        poetry config pypi-token.testpypi "${TEST_PYPI_API_TOKEN_CMK_DEV_TOOLS_ONLY}"
-                        poetry publish --repository testpypi --skip-existing
+                        uv publish \
+                            --token "${TEST_PYPI_API_TOKEN_CMK_DEV_TOOLS_ONLY}" \
+                            --publish-url https://test.pypi.org/legacy/
                     """);
                 }
             }

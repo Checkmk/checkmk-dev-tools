@@ -12,8 +12,8 @@ RUN groupadd -g 1000 jenkins \
 
 USER jenkins
 
-# install latest available poetry
-RUN curl -sSL https://install.python-poetry.org | POETRY_VERSION=1.8.5 python3 -
+# install latest available uv
+RUN curl -LsSf https://astral.sh/uv/0.7.13/install.sh | sh
 
-# update the PATH variable with the poetry installation directory
+# update the PATH variable with the installation directory
 ENV PATH="${PATH}:/home/jenkins/.local/bin"

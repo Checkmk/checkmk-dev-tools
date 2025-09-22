@@ -7,8 +7,6 @@ This file is part of Checkmk (https://checkmk.com). It is subject to the terms a
 conditions defined in the file COPYING, which is part of this source code package.
 """
 
-# pylint: disable=fixme
-
 import logging
 import re
 import sys
@@ -21,11 +19,9 @@ from datetime import datetime
 from pathlib import Path
 from typing import TextIO
 
-# _type: ignore[import-untyped]
-# _type: ignore[no-any-unimported]
 import aiofiles
 import yaml
-from ttrace import (
+from ttrace import (  # type: ignore[import-untyped]
     OpenatType,
     StraceType,
     parse,
@@ -49,7 +45,7 @@ def load_filter_pattern(file_path: str | Path) -> str:
     return ""
 
 
-async def extract_paths(
+async def extract_paths(  # type: ignore[no-any-unimported]
     stream: AsyncIterable[tuple[int, str, StraceType]],
 ) -> AsyncIterable[tuple[str, str, Path, str, int | None]]:
     """Traverses `openat` strace lines and yields file access"""

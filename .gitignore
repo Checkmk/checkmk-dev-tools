@@ -10,6 +10,7 @@ __pycache__
 idea
 .idea
 *.wpu
+/_UNTRACKED
 
 # automatically updated by snippets2changelog and changelog2version
 changelog.md

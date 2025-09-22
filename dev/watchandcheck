@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+
+# run from root of current project
+cd "$(dirname "$(dirname "$(realpath "$0")")")" || exit 1
+
+CMD="$1"
+
+while true; do
+    inotifywait -q -r -e modify,create,move \
+    --exclude '\.git|__pycache__|\.mypy_cache|build/|\.venv|\.goutputstream|failed_builds*/' \
+    --format '%w%f' .
+    clear
+    uv run pre-commit run --hook-stage pre-commit --all-files \
+    && [ -n "$CMD" ] && $CMD
+done
