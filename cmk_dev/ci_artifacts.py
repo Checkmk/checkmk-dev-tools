@@ -1098,12 +1098,6 @@ async def await_build(
 
         log().info("build finished with result=%s", current_build_info.result)
 
-    if check_result and current_build_info.result != "SUCCESS":
-        raise Fatal(
-            "The build we started has "
-            f"result={current_build_info.result} ({current_build_info.url})"
-        )
-
     if path_hashes and not path_hashes_match(current_build_info.path_hashes, path_hashes):
         raise Fatal(
             f"most recent build #{current_build_info.number} has mismatching path hashes: "
