@@ -3,7 +3,7 @@
 /// file: release.groovy
 
 def main() {
-    def image_name = "python-curl-poetry";
+    def image_name = "python-curl-uv";
     def dockerfile = "ci/Dockerfile";
     def docker_args = "${mount_reference_repo_dir}";
     def release_new_version_flag = false;
@@ -111,10 +111,10 @@ def main() {
             stage("Build package") {
                 sh(label: "build package", script: """
                     # see comment in pyproject.toml
-                    poetry self add "poetry-dynamic-versioning[plugin]"
                     rm -rf dist/*
-                    poetry build
-                    poetry run twine check dist/*
+
+                    uv build
+                    dev/run-in-venv run twine check dist/*
                     python3 -m pip uninstall -y cmk-devops-tools
                     python3 -m pip install --pre --user dist/cmk_devops_tools-*-py3-none-any.whl
                 """);
@@ -125,8 +125,8 @@ def main() {
                     string(credentialsId: 'PYPI_API_TOKEN_CMK_DEV_TOOLS_ONLY', variable: 'PYPI_API_TOKEN_CMK_DEV_TOOLS_ONLY')
                 ]) {
                     sh(label: "publish package", script: """
-                        poetry config pypi-token.pypi "${PYPI_API_TOKEN_CMK_DEV_TOOLS_ONLY}"
-                        poetry publish --skip-existing
+                        uv publish \
+                            --token "${PYPI_API_TOKEN_CMK_DEV_TOOLS_ONLY}"
                     """);
                 }
             }

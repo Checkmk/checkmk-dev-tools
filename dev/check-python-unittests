@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+
+# This script is just here to run python unit tests in a standard
+# single-point-of-truth way. Feel free to run it manually instead.
+
+# run from root of current project
+cd "$(dirname "$(dirname "$(realpath "$0")")")" || exit 1
+
+# don't run pre-commit here but pytest direct instead to be able to control arguments
+exec "dev/run-in-venv" pytest -m unit "$@"

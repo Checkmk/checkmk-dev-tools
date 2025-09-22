@@ -3,7 +3,7 @@
 /// file: test-gerrit.groovy
 
 def main() {
-    def image_name = "python-curl-poetry";
+    def image_name = "python-curl-uv";
     def dockerfile = "ci/Dockerfile";
     def docker_args = "${mount_reference_repo_dir}";
     def release_new_version_flag = false;
@@ -45,12 +45,11 @@ def main() {
             stage("Validate entrypoints") {
                 sh(label: "run entrypoints", script: """
                     set -o pipefail
-                    poetry --version
 
-                    poetry run binreplace --help
-                    poetry run ci-artifacts --help
-                    poetry run job-resource-usage --help
-                    poetry run lockable-resources --help
+                    dev/run-in-venv binreplace --help
+                    dev/run-in-venv ci-artifacts --help
+                    dev/run-in-venv job-resource-usage --help
+                    dev/run-in-venv lockable-resources --help
                 """);
             }
 
@@ -125,10 +124,9 @@ def main() {
             stage("Build package") {
                 sh(label: "build package", script: """
                     # see comment in pyproject.toml
-                    poetry self add "poetry-dynamic-versioning[plugin]==1.4.1"
                     rm -rf dist/*
-                    poetry build
-                    poetry run twine check dist/*
+                    uv build
+                    dev/run-in-venv twine check dist/*
                     python3 -m pip uninstall -y cmk-devops-tools
                     python3 -m pip install --pre --user dist/cmk_devops_tools-*-py3-none-any.whl
                 """);
@@ -139,9 +137,9 @@ def main() {
                     string(credentialsId: 'TEST_PYPI_API_TOKEN_CMK_DEV_TOOLS_ONLY', variable: 'TEST_PYPI_API_TOKEN_CMK_DEV_TOOLS_ONLY')
                 ]) {
                     sh(label: "publish package", script: """
-                        poetry config repositories.testpypi https://test.pypi.org/legacy/
-                        poetry config pypi-token.testpypi "${TEST_PYPI_API_TOKEN_CMK_DEV_TOOLS_ONLY}"
-                        poetry publish --repository testpypi --skip-existing
+                        uv publish \
+                            --token "${TEST_PYPI_API_TOKEN_CMK_DEV_TOOLS_ONLY}" \
+                            --publish-url https://test.pypi.org/legacy/
                     """);
                 }
             }

@@ -1,101 +1,160 @@
-[tool.poetry]
+[project]
 name = "cmk-devops-tools"
+#dynamic = ["version"]  # will-be-updated-automatically
 version = "0.0.0" # will-be-updated-automatically
 description = "Checkmk DevOps tools"
 authors = [
-    "Jonas Scharpf <jonas.scharpf@checkmk.com>",
-    "Niko Wenselowski <niko.wenselowski@checkmk.com>",
-    "Timotheus Bachinger <timotheus.bachinger@checkmk.com>",
+    {name = "Jonas Scharpf", email = "jonas.scharpf@checkmk.com"},
+    {name = "Niko Wenselowski", email = "niko.wenselowski@checkmk.com"},
+    {name = "Timotheus Bachinger", email = "timotheus.bachinger@checkmk.com"},
 ]
+
 readme = "README.md"
-packages = [{ include = "cmk_devops/**/*.py" }]
-exclude = ["cmk_devops/out"]
+requires-python =  ">=3.10.4,<4"
+dependencies = [
+    "python-jenkins>=1.8.3", # needed for ci-artifacts
+    "pydantic>=2", # jenkins_utils/*, docker_shaper/*
+    "rich", # activity_from_fs.py, docker_shaper/*
+    "influxdb-client>=1", # ci_artifacs.py with InfluxDB
+    "trickkiste>=0.3.4",
+    "aiohttp>=3.12.15",
+]
 
 [tool.poetry.urls]
 Repository = "https://github.com/Checkmk/cmk-devops-tools"
 Changelog = "https://github.com/Checkmk/cmk-devops-tools/blob/CHANGE_ME_I_AM_A_CHANGELOG/changelog.md"
 
-[tool.poetry.scripts]
+[project.scripts]
 binreplace = 'cmk_devops.binreplace:main'
 ci-artifacts = 'cmk_devops.ci_artifacts:main'
 job-resource-usage = 'cmk_devops.job_resource_usage:main'
 last-access = 'cmk_devops.last_access:main'
 lockable-resources = 'cmk_devops.lockable_resources:main'
 
-[tool.poetry.dependencies]
-python = "^3.10.4"         # currently lowest supported Python version (CI Build Nodes)
-python-jenkins = "~=1.8.3" # needed for ci-artifacts
-pydantic = "^2"            # ci_artifacs
-rich = "*"                 # ci_artifacs
-influxdb-client = "^1"     # ci_artifacs.py with InfluxDB
-
-trickkiste = "^0.3.4"
-
-# [tool.poetry.group.dev.dependencies]
-pytest = "*"
-mypy = "*"
-ruff = "^0.6"
-twine = "*"
-yamllint = "*"
-pytest-cov = "*"
-snippets2changelog = "^1.6.0"
-poetry-dynamic-versioning = "^1.3.0"
-types-pyyaml = "*"
-types-requests = "*"
-pre-commit = "*"
-
-# https://github.com/mtkennerly/poetry-dynamic-versioning/tree/v1.3.0
-# > poetry self add "poetry-dynamic-versioning[plugin]"
-# it is not enough to add it to the projects pyproject.toml file
-[tool.poetry-dynamic-versioning]
-enable = true
-format-jinja-imports = [{ module = "subprocess", item = "check_output" }]
-format-jinja = """{{ check_output(["python3", "-c", "from pathlib import Path; exec(Path('cmk_devops/version.py').read_text()); print(__version__)"]).decode().strip() }}"""
-# format-jinja = "{{ env.get('PROJECT_VERSION') }}"
+# see https://docs.astral.sh/uv/concepts/projects/dependencies/
+[dependency-groups]
+dev = [
+    # and here come the actual dev-dependencies
+    "pytest",
+    "mypy",
+    "ruff>=0.6",
+    "yamllint",
+    "pytest-cov",
+    "snippets2changelog>=1.6.0",
+    "types-pyyaml",
+    "types-requests",
+    "pre-commit",
+]
 
 [build-system]
-requires = ["poetry-core>=1.0.0", "poetry-dynamic-versioning>=1.0.0,<2.0.0"]
-build-backend = "poetry_dynamic_versioning.backend"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "cmk_devops/version.py"
+
+# https://hatch.pypa.io/1.13/config/build/#vcs
+# auto generated file cmk_devops/version.py would be excluded otherwise
+[tool.hatch.build.targets.sdist]
+ignore-vcs = true
+[tool.hatch.build.targets.wheel]
+ignore-vcs = true
+packages = ["cmk_devops"]
+
+[tool.pytest.ini_options]
+markers = [
+    "unit: Unit tests (deselect with '-m \"not unit\"')",
+    "system: Tests involving an attached device (deselect with '-m \"not system\"')",
+]
+testpaths = ["cmk_devops", "tests"]
+
+[flake8-annotations]
+suppress-dummy-args = true
+
+[mccabe]
+max-complexity = 15
 
 [tool.ruff]
 target-version = "py310"
 line-length = 100
-[flake8-annotations]
-suppress-dummy-args = true
-[mccabe]
-max-complexity = 15
+# fix = true
 
 [tool.ruff.lint]
-select = ["C", "E", "F", "I", "W", "C90", "PL", "PLR"]
-ignore = [
-    "C401", # Unnecessary generator
-    "C417", # Unnecessary "map" usage
-    "C901", # "main" is too complex
-    # "E402", # module level import not on top of the file
-    "E501", # line too long, 100s of fails. Fixable.
-
-    "PLR0911", # Too many return statements
-    "PLR0912", # Too many branches
-    "PLR0913", # Too many arguments in function definition
-    "PLR0915", # Too many statements
+# see https://docs.astral.sh/ruff/linter/
+# https://github.com/astral-sh/ruff-pre-commit
+select = [
+    #"ALL",  # all available linting checks
+    "B",    # flake8-bugbear: reports potential bugs
+    "C90",  # Complexity: violations of 90th percentile of cyclomatic complexity
+    "C",    # Complexity: general code complexity issues
+    "E",    # pycodestyle: check PEP 8 style guidelines
+    "F",    # pyflakes: detects potential errors like undefined/unused symbols
+    "I",    # isort: check for proper import sorting
+    "PL",   # pylint: Reports issues related to Pylint checks.
+    "SIM",  # flake8-simplify: Suggests simplifications in code (e.g., replacing complex expressions with simpler ones).
+    "UP",   # pyupgrade: Checks and suggests improvements to modernize Python code (e.g., f-strings).
+    "W",    # Warning: General warnings or potentially problematic code patterns.
 ]
+ignore = [
+    # These should be fixed eventually
+    "B005",     # Using `.strip()` with multi-character strings is misleading
+    "B008",     # Do not perform function call `datetime.now` in argument defaults;
+    "B011",     # Do not `assert False`
+    "B905",     #  [*] `zip()` without an explicit `strict=` parameter
+    "C401",     # Unnecessary generator
+    "C417",     # Unnecessary "map" usage
+    "C901",     # .. is too complex
+    "E501",     # line too long
+    "PLR0911",  # Too many return statements
+    "PLR0912",  # Too many branches
+    "PLR0913",  # Too many arguments in function definition
+    "PLR0915",  # Too many statements
+    "PLR2004",  #  Magic value used in comparison
+    "SIM102",   #  Use a single `if` statement instead of nested `if` statements
+    "SIM105",   # Use `contextlib.suppress(ProcessLookupError)` instead of `try`-`except`-`pass`
+    "SIM118",   # Use `key in dict` instead of `key in dict.keys()`
+    "SIM210",   #  Remove unnecessary `True if ... else False`
+    "SIM223",   # Use `False` instead of `False and ...`
+    "UP006",    # [*] Use `dict` instead of `Dict` for type annotation
+    "UP007",    # Use `X | Y` for type annotations
+    "UP017",    # [*] Use `datetime.UTC` alias
+    "UP035",    # [*] Import from `collections.abc` instead: `Sequence`
 
-# [tool.ruff.lint.per-file-ignores]
-# "filename" = ["E123"]
+    # These are ignored on purpose
+    "ASYNC230", # Async functions should not open files with blocking methods like `open`
+    "COM812",   # missing-trailing-comma
+    "D202",     # No blank lines allowed after function docstring (found 1)
+    #"D203",     # incorrect-blank-line-before-class
+    "D205",     # 1 blank line required between summary line and description
+    "D209",     # Multi-line docstring closing quotes should be on a separate line
+    #"D211",     # conflicts: no-blank-line-before-class
+    "D212",     # Multi-line docstring summary should start at the first line
+    "D213",     # Multi-line docstring
+    "D400",     # First line should end with a period
+    "D401",     # First line of docstring should be in imperative mood
+    "D403",     # First word of the docstring should be capitalized: `def` -> `Def`
+    "D415",     # First line should end with a period, question mark, or exclamation point
+    "EM101",    # Exception must not use a string literal, assign to variable first
+    "EM102",    # Exception must not use an f-string literal, assign to variable first
+    "EXE001",   # Shebang is present but file is not executable
+    "PT018",    # Assertion should be broken down into multiple parts
+    "S101",     # Use of `assert` detected
+    "SIM117",   # Use single `with`
+    "T201",     # `print` found
+    "TD001",    # Invalid TODO tag: `Fixme`
+    "TD003",    # Missing issue link for this TODO
+    "TRY003",   # Avoid specifying long messages outside the exception class
+]
 
 [tool.mypy]
 python_version = "3.10"
-strict = "True"
-disallow_untyped_defs = "True"
-disallow_any_unimported = "True"
-no_implicit_optional = "True"
-check_untyped_defs = "True"
-warn_return_any = "True"
-warn_unused_ignores = "True"
-show_error_codes = "True"
+strict=true
+disallow_untyped_defs=true
+disallow_any_unimported=true
+no_implicit_optional=true
+check_untyped_defs=true
+warn_return_any=true
+warn_unused_ignores=true
+show_error_codes=true
 mypy_path = "typeshed"
-exclude = [
-    # folders
-    '\.venv',
-    # files
-]
+exclude = '^(\\.venv)'

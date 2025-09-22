@@ -3,7 +3,7 @@
 /// file: integration.groovy
 
 def main() {
-    def image_name = "python-curl-poetry";
+    def image_name = "python-curl-uv";
     def dockerfile = "ci/Dockerfile";
     def docker_args = "${mount_reference_repo_dir}";
     def release_new_version_flag = false;
@@ -20,16 +20,16 @@ def main() {
         docker_image.inside(docker_args) {
             stage("Install") {
                 sh(label: "Install script", script: """
-                    poetry --version
+                    uv --version
 
                     # install scripts of this repo
-                    poetry install
+                    uv sync
 
                     # print current version
-                    poetry run ci-artifacts --version
+                    dev/run-in-venv ci-artifacts --version
 
-                    poetry run ci-artifacts --help
-                    poetry run ci-artifacts validate --help
+                    dev/run-in-venv ci-artifacts --help
+                    dev/run-in-venv ci-artifacts validate --help
                 """);
             }
 
@@ -46,7 +46,7 @@ def main() {
             ]) {
                 stage("Test subcommands") {
                     sh(label: "Test subcommand", script: """
-                        poetry run pytest -vvvvv -s
+                        dev/run-in-venv pytest -vvvvv -s
                     """);
                 }
             }

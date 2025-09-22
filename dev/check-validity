@@ -2,7 +2,6 @@
 
 # This script is just here to run all checkers in a standard single-point-of-truth
 # way. Feel free to run them instead.
-# To be used in pre-commit-hook
 
 set -e
 
@@ -15,7 +14,4 @@ fi
 # run from root of current project
 cd "$(dirname "$(dirname "$(realpath "$0")")")"
 
-dev/check-python-doctests "$@"
-dev/check-python-format "$@"
-dev/check-yaml-linting "$@"
-dev/check-shellscripts "$@"
+exec "dev/run-in-venv" pre-commit run --hook-stage pre-commit --all-files
