@@ -115,6 +115,12 @@ def parse_args() -> Args:
             action="store_true",
             help="Do not raise an Exception in case of errors",
         )
+        subparser.add_argument(
+            "--no-simple-logging",
+            dest="no_simple_logging",
+            action="store_true",
+            help="Use colored and linebreaking rich logger over default python logger",
+        )
 
     def apply_request_args(subparser: ArgumentParser) -> None:
         subparser.add_argument(
@@ -231,9 +237,9 @@ def parse_args() -> Args:
     return parser.parse_args()
 
 
-def log() -> logging.Logger:
+def log(no_simple_logging: bool = False) -> logging.Logger:
     """Convenience function retrieves 'our' logger"""
-    return logging.getLogger("trickkiste.cmk-dev.cia")
+    return logging.getLogger("trickkiste.cmk-dev.cia" if no_simple_logging else __name__)
 
 
 def flatten(params: None | Sequence[JobParams]) -> None | JobParams:
@@ -1173,18 +1179,26 @@ def main() -> None:
     try:
         args = parse_args()
 
-        # for some reasons terminal type and properties are not recognized correctly by rich,
-        # so 'temporarily' we force width and color
-        if "CI" in os.environ:
-            os.environ.setdefault("FORCE_COLOR", "true")
-            os.environ.setdefault("COLUMNS", "200")
+        if args.no_simple_logging:
+            # for some reasons terminal type and properties are not recognized correctly by rich,
+            # so 'temporarily' we force width and color
+            if "CI" in os.environ:
+                os.environ.setdefault("FORCE_COLOR", "true")
+                os.environ.setdefault("COLUMNS", "200")
 
-        setup_logging(
-            logger=log(),
-            level=args.log_level,
-            show_name=False,
-            show_funcname=False,
-        )
+            setup_logging(
+                logger=log(),
+                level=args.log_level,
+                show_name=False,
+                show_funcname=False,
+            )
+        else:
+            logging.basicConfig(
+                format="[%(asctime)s] [%(levelname)-8s] [%(funcName)-5s:%(lineno)4s] %(message)s",
+                level=logging.INFO,
+            )
+            logger = logging.getLogger(__name__)
+            logger.setLevel(args.log_level)
 
         log().debug("Parsed args: %s", args)
         asyncio.run(args.func(args))
