@@ -147,8 +147,7 @@ def activity_from_fs(start_dir: Path) -> None:
     print(f"{filecount:8d} files taken into account")
     print()
     print(
-        "Hint: also search Slack for `on:<date> from:@<your-name>`"
-        " e.g. `on:2024-02-19 from:@Ernie`"
+        "Hint: also search Slack for `on:<date> from:@<your-name>` e.g. `on:2024-02-19 from:@Ernie`"
     )
 
 

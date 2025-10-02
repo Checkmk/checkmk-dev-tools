@@ -16,7 +16,6 @@ python3 -m compileall --invalidation-mode=checked-hash src
 # pylint: disable=too-many-branches
 # pylint: disable=too-many-statements
 
-
 import binascii
 import dis
 import marshal
@@ -80,7 +79,7 @@ def view_pyc_file(path: Path, strip: str = "", verbose: bool = False) -> None:
 
     # assert path.parent.name == "__pycache__"
     source_dir = path.parent.parent.absolute()
-    py_file_path = source_dir / f"{path.stem[:path.stem.find('.cpython')]}.py"
+    py_file_path = source_dir / f"{path.stem[: path.stem.find('.cpython')]}.py"
 
     if not py_file_path.exists():
         level = max(level, 2)

@@ -126,11 +126,13 @@ def main() -> None:
 
 
 def parse_cli() -> Namespace:
-    parser = ArgumentParser(description="""
+    parser = ArgumentParser(
+        description="""
         This script uses data collected by docker-shaper.
         The ndjson formatted data files can usually be found on the build nodes
         at: ~jenkins/.docker_shaper/container-logs
-        """)
+        """
+    )
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("path", help="Path to look for data files")
     parser.add_argument("--limit", default=10, type=int, help="Limit results to this many")
@@ -213,11 +215,7 @@ def _load_file_to_container_format(path: pathlib.Path) -> dict[str, Any]:
 
 
 def _sanitize_raw_dp(dp: dict[str, int | float | None]) -> dict[str, int | float]:
-    return {
-        k: v if v is not None else 0
-        for k, v
-        in dp.items()
-    }
+    return {k: v if v is not None else 0 for k, v in dp.items()}
 
 
 def order_by_cpu(data: list[Container]) -> list[Container]:

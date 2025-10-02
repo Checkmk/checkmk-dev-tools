@@ -107,7 +107,15 @@ class Build(SimpleBuild):
     def correct(cls, obj: Json[dict[str, Any]]) -> Json[dict[str, Any]]:
         """Refactor init to match our excpectations"""
 
-        if obj.get("result") not in {None, "FAILURE", "SUCCESS", "ABORTED", "UNSTABLE", "RUNNING", "PROGRESS"}:
+        if obj.get("result") not in {
+            None,
+            "FAILURE",
+            "SUCCESS",
+            "ABORTED",
+            "UNSTABLE",
+            "RUNNING",
+            "PROGRESS",
+        }:
             log().error("Build result has unexpected value %s", obj.get("result"))
 
         # hack to create Job build with InfluxDB data
@@ -115,9 +123,7 @@ class Build(SimpleBuild):
             this_parameters = obj["parameters"]
         else:
             this_parameters = params_from(
-                build_info=obj,
-                action_name="ParametersAction",
-                item_name="parameters"
+                build_info=obj, action_name="ParametersAction", item_name="parameters"
             )
         path_hashes = split_params(cast(str, this_parameters.get("DEPENDENCY_PATH_HASHES", "")))
 
@@ -142,7 +148,7 @@ class Build(SimpleBuild):
 
     def __str__(self) -> str:
         return (
-            f"Build(nr={self.number}, {'completed' if  self.completed else 'running'}/{self.result}"
+            f"Build(nr={self.number}, {'completed' if self.completed else 'running'}/{self.result}"
             f", started: {date_str(self.timestamp)}"
             f", took {dur_str(self.duration, fixed=True)}"
             f", params={{{compact_dict(self.parameters)}}}"
@@ -367,27 +373,43 @@ def apply_common_jenkins_cli_args(parser: ArgumentParser) -> None:
     )
 
 
-def filter_by_prefix(dictionary: MutableMapping[str, str], unallowed_prefixes: list[str], strip_prefix: str) -> Mapping[str, str]:
+def filter_by_prefix(
+    dictionary: MutableMapping[str, str], unallowed_prefixes: list[str], strip_prefix: str
+) -> Mapping[str, str]:
     """Return a new dictionary containing only keys without their prefix that do not start with any of the given prefixes."""
     return {
-        key.replace(strip_prefix, ""): value for key, value in dictionary.items() if not any(key.startswith(prefix) for prefix in unallowed_prefixes)
+        key.replace(strip_prefix, ""): value
+        for key, value in dictionary.items()
+        if not any(key.startswith(prefix) for prefix in unallowed_prefixes)
     }
 
 
-def extract_credentials(credentials: None | Mapping[str, str] = None, credentials_file: str = "~/.config/jenkins_jobs/jenkins_jobs.ini", config_section: str = "jenkins") -> Mapping[str, str]:
+def extract_credentials(
+    credentials: None | Mapping[str, str] = None,
+    credentials_file: str = "~/.config/jenkins_jobs/jenkins_jobs.ini",
+    config_section: str = "jenkins",
+) -> Mapping[str, str]:
     """Turns the information provided via --credentials into actual values"""
     extracted_creds: MutableMapping[str, str] = {}
     section_settings: Mapping[str, Mapping[str, tuple[str, ...]]] = {
-        "jenkins": {"required_keys": ("url", "username", "password"),},
-        "influxdb": {"required_keys": ("url", "password"),},
-        "influxdb_testing": {"required_keys": ("url", "password"),},
+        "jenkins": {
+            "required_keys": ("url", "username", "password"),
+        },
+        "influxdb": {
+            "required_keys": ("url", "password"),
+        },
+        "influxdb_testing": {
+            "required_keys": ("url", "password"),
+        },
     }
 
     if credentials:
         creds_keys = [key.removesuffix("_env") for key in credentials.keys()]
         try:
             for key in creds_keys:
-                extracted_creds[key] = credentials.get(key) or os.environ[credentials.get(f"{key}_env", "")]
+                extracted_creds[key] = (
+                    credentials.get(key) or os.environ[credentials.get(f"{key}_env", "")]
+                )
         except KeyError as exc:
             raise Fatal(f"Requested environment variable {exc} is not defined") from exc
 
@@ -399,7 +421,11 @@ def extract_credentials(credentials: None | Mapping[str, str] = None, credential
             if config_section != "jenkins":
                 # remove all keys defined for jenkins. This is a fix for not prefixing them initially while this tool was created
                 unallowed_prefixes += list(section_settings["jenkins"]["required_keys"])
-            return filter_by_prefix(dictionary=extracted_creds, unallowed_prefixes=unallowed_prefixes, strip_prefix=f"{config_section}_")
+            return filter_by_prefix(
+                dictionary=extracted_creds,
+                unallowed_prefixes=unallowed_prefixes,
+                strip_prefix=f"{config_section}_",
+            )
         else:
             log().error("Not all required keys have been loaded from env")
 
@@ -416,12 +442,16 @@ def extract_credentials(credentials: None | Mapping[str, str] = None, credential
         "password": loaded_config[config_section]["password"],
         # special handling for a may configured InfluxDB port
         **(
-            {"port": loaded_config[config_section]["port"]} if "port" in loaded_config[config_section] else {}
+            {"port": loaded_config[config_section]["port"]}
+            if "port" in loaded_config[config_section]
+            else {}
         ),
         # very special handling as the Jenkins user is called "user" in the config file, but the AugmentedJenkinsClient expects "username"
         **(
-            {"username": loaded_config[config_section]["user"]} if (config_section == "jenkins" and "user" in loaded_config[config_section]) else {}
-        )
+            {"username": loaded_config[config_section]["user"]}
+            if (config_section == "jenkins" and "user" in loaded_config[config_section])
+            else {}
+        ),
     }
 
     if not all(key in extracted_creds for key in section_settings[config_section]["required_keys"]):

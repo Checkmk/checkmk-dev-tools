@@ -129,10 +129,7 @@ def shorten_home(path: Union[Path, str]) -> Path:
 def fn_info(_args: Args) -> None:
     """Entry point `info`"""
     print(f"Version: {__version__} (at {shorten_home(Path(__file__).parent)})")
-    print(
-        f"Python: {'.'.join(map(str, sys.version_info[:3]))}"
-        f" (at {shorten_home(sys.executable)})"
-    )
+    print(f"Python: {'.'.join(map(str, sys.version_info[:3]))} (at {shorten_home(sys.executable)})")
 
 
 def fn_howto(args: Args) -> None:

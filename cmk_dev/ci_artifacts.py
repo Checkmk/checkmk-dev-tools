@@ -784,26 +784,38 @@ async def _fn_await_and_handle_build(args: Args) -> None:
             )
         )
 
-def query_matching_builds(influx_client: InfluxDBClient, bucket: str, project_path: str, fields: List[str], time_range: str = "start: -3h", org: str = "jenkins") -> List[Mapping[str, Any]]:
+
+def query_matching_builds(
+    influx_client: InfluxDBClient,
+    bucket: str,
+    project_path: str,
+    fields: List[str],
+    time_range: str = "start: -3h",
+    org: str = "jenkins",
+) -> List[Mapping[str, Any]]:
     """Query InfluxDB for builds with fields of interest"""
     fields_of_interest = " or ".join(f'''r["_field"] == "{this_field}"''' for this_field in fields)
     # someone with better understanding of Flux might fix and optimize this query
-    query = f'''from(bucket: "{bucket}")
+    query = f"""from(bucket: "{bucket}")
       |> range({time_range})
       |> filter(fn: (r) => {fields_of_interest})
       |> filter(fn: (r) => r["project_path"] == "{project_path}")
       |> filter(fn: (r) => r["_measurement"] == "custom_jenkins_job_params")
       |> pivot(rowKey: ["_time"], columnKey: ["_field"], valueColumn: "_value")
-    '''
+    """
 
     this_data: List[Mapping[str, Any]] = []
     keys_to_skip = (
         # do not add non JSON processable datetime objects
-        '_time', '_stop', '_start',
+        "_time",
+        "_stop",
+        "_start",
         # do not add common meta data infos
-        'instance', 'table', 'result',
+        "instance",
+        "table",
+        "result",
         # do not add name of measurement
-        '_measurement',
+        "_measurement",
     )
 
     try:
@@ -814,7 +826,7 @@ def query_matching_builds(influx_client: InfluxDBClient, bucket: str, project_pa
             row_dict = {}
 
             # Always add time column
-            row_dict['time'] = record.get_time().isoformat()    # type: ignore[no-untyped-call]
+            row_dict["time"] = record.get_time().isoformat()  # type: ignore[no-untyped-call]
 
             # Add values for each field
             for key, value in record.values.items():
@@ -827,6 +839,7 @@ def query_matching_builds(influx_client: InfluxDBClient, bucket: str, project_pa
     except Exception as e:
         log().error(f"Error querying InfluxDB: {e}")
         return []
+
 
 async def _fn_fetch(args: Args) -> None:
     """Entry point for fetching (request and download combined) artifacts"""
@@ -886,7 +899,7 @@ async def _fn_fetch(args: Args) -> None:
                         out_dir,
                         args.total_download_timeout,
                         args.no_remove_others,
-                        args.no_raise
+                        args.no_raise,
                     )
                 )
             )
@@ -921,13 +934,15 @@ async def identify_matching_build(
     # pylint: disable=too-many-locals
     if isinstance(args, Args) and args.use_influxdb:
         log().info("Start finding matching builds in InfluxDB")
-        influxdb_config = extract_credentials(credentials=args.credentials, config_section="influxdb")
+        influxdb_config = extract_credentials(
+            credentials=args.credentials, config_section="influxdb"
+        )
 
         this_org = "jenkins"
         this_port = f":{influxdb_config.get('port')}" if "port" in influxdb_config else ""
         influx_client = InfluxDBClient(
             url=f"{influxdb_config['url']}{this_port}",
-            token=influxdb_config['password'],
+            token=influxdb_config["password"],
             org=this_org,
         )
 
@@ -941,7 +956,9 @@ async def identify_matching_build(
             bucket="job_bucket",
             project_path=args.job,
             fields=fields,
-            time_range=f"start: {datetime.now().strftime('%Y-%m-%d')}T00:00:00Z, stop: now()" if time_constraints == "today" else "start: 0, stop: now()",
+            time_range=f"start: {datetime.now().strftime('%Y-%m-%d')}T00:00:00Z, stop: now()"
+            if time_constraints == "today"
+            else "start: 0, stop: now()",
             org=this_org,
         )
 
@@ -951,10 +968,20 @@ async def identify_matching_build(
             # if a job with this build number exists already, update it in the dict
             # be prepared for timestamps with or without milliseconds
             try:
-                this_timestamp = int(datetime.strptime(this_build["time"].split('+')[0], '%Y-%m-%dT%H:%M:%S.%f').timestamp() * 1000)
+                this_timestamp = int(
+                    datetime.strptime(
+                        this_build["time"].split("+")[0], "%Y-%m-%dT%H:%M:%S.%f"
+                    ).timestamp()
+                    * 1000
+                )
             except ValueError as e:
                 if "does not match format" in str(e):
-                    this_timestamp = int(datetime.strptime(this_build["time"].split('+')[0], '%Y-%m-%dT%H:%M:%S').timestamp() * 1000)
+                    this_timestamp = int(
+                        datetime.strptime(
+                            this_build["time"].split("+")[0], "%Y-%m-%dT%H:%M:%S"
+                        ).timestamp()
+                        * 1000
+                    )
                 else:
                     this_timestamp = 0
             this_duration = 0
@@ -977,10 +1004,16 @@ async def identify_matching_build(
                 path_hashes={},
                 artifacts=[],
                 inProgress=True if build_result == "RUNNING" else False,
-                parameters={k: v if v is not None else "" for k, v in this_build.items() if isinstance(k, str) and k.isupper()}
+                parameters={
+                    k: v if v is not None else ""
+                    for k, v in this_build.items()
+                    if isinstance(k, str) and k.isupper()
+                },
             )
 
-        log().info(f"Got {len(matching_builds)} InfluxDB job history entries of today, generated {len(builds)} builds to check")
+        log().info(
+            f"Got {len(matching_builds)} InfluxDB job history entries of today, generated {len(builds)} builds to check"
+        )
 
         # ugly code duplication incomming, rework this to a dedicated function
         for build in list(builds.values()):
@@ -1216,7 +1249,9 @@ def main() -> None:
                 log().debug("Stopping ongoing job")
     except Fatal as exc:
         log().error("Fatal exception: %s", exc)
-        print(json.dumps({"err": f"Fatal exception: {exc}" }))  # always return a valid JSON to the caller
+        print(
+            json.dumps({"err": f"Fatal exception: {exc}"})
+        )  # always return a valid JSON to the caller
         raise SystemExit(-1) from exc
 
 

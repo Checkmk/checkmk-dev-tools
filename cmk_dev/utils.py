@@ -90,7 +90,7 @@ def current_os_name() -> str:  # pylint: disable=too-many-return-statements
         raise NotImplementedError()
 
     if os_release["NAME"] == "SLES":
-        return f'sles{os_release["VERSION"].lower().replace("-", "")}'
+        return f"sles{os_release['VERSION'].lower().replace('-', '')}"
 
     if os_release["NAME"] in {"Ubuntu", "Debian GNU/Linux"}:
         if os_release["VERSION_ID"] == "14.04":

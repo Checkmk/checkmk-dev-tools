@@ -45,7 +45,7 @@ def load_filter_pattern(file_path: str | Path) -> str:
         with Path(file_path).expanduser().open(encoding="utf-8") as config_file:
             file_content = yaml.load(config_file, Loader=yaml.BaseLoader)
             pattern = (p.replace("~", str(Path("~").expanduser())) for p in file_content["exclude"])
-            return rf'^({"|".join(pattern)})$'
+            return rf"^({'|'.join(pattern)})$"
     return ""
 
 
