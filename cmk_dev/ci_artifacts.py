@@ -44,7 +44,6 @@ from .jenkins_utils import (
     QueueId,
     apply_common_jenkins_cli_args,
     extract_credentials,
-    params_from,
 )
 from .utils import Fatal
 from .version import __version__
@@ -560,24 +559,24 @@ def meets_constraints(
     return result
 
 
-def build_id_from_queue_item(
-    client: Jenkins, queue_id: QueueId, next_check_sleep: int = 30
+async def build_id_from_queue_item(
+    client: AugmentedJenkinsClient, queue_id: QueueId, next_check_sleep: int = 30
 ) -> BuildId:
     """Waits for queue item with given @queue_id to be scheduled and returns Build instance"""
-    queue_item = client.get_queue_item(queue_id)
+    queue_item = await client.queue_item(queue_id)
     log().info(
         "waiting for queue item %s to be scheduled (%s%s)",
         queue_id,
-        queue_item["task"]["url"],
-        queue_item["url"],
+        queue_item.task.url,
+        f"queue/item/{queue_item.id}/",
     )
 
     while True:
-        queue_item = client.get_queue_item(queue_id)
-        if executable := queue_item.get("executable"):
-            return executable["number"]
-        log().debug("still waiting in queue, because %s", queue_item["why"])
-        time.sleep(next_check_sleep)
+        queue_item = await client.queue_item(queue_id)
+        if queue_item.executable:
+            return queue_item.executable.number
+        log().debug("still waiting in queue, because %s", queue_item.why)
+        await asyncio.sleep(next_check_sleep)
 
 
 async def find_matching_queue_item(
@@ -589,43 +588,40 @@ async def find_matching_queue_item(
 ) -> None | BuildId:
     """Looks for a queued build matching job and parameters and returns the QueueId"""
     for queue_item in await jenkins_client.queue_info():
-        if not cast(str, queue_item.get("_class", "")).startswith("hudson.model.Queue"):
-            continue
-        if cast(str, cast(GenMap, queue_item.get("task", {})).get("url", "")) != job.url:
+        if queue_item.task.url != job.url:
             continue
 
-        queue_item_params = params_from(queue_item, "ParametersAction", "parameters")
         mismatching_parameters = find_mismatching_parameters(
             params or {},
-            queue_item_params,
+            queue_item.parameters,
         )
         if mismatching_parameters:
             log().debug(
                 "queue item %s has mismatching parameters: %s",
-                queue_item.get("id"),
+                queue_item.id,
                 mismatching_parameters,
             )
             continue
 
-        expected_path_hashes = extract_path_hashes(queue_item_params)
+        expected_path_hashes = extract_path_hashes(queue_item.parameters)
 
         if expected_path_hashes and not path_hashes:
             log().warning(
                 "strange: queued item %s has expected path hashes set but we don't care?",
-                queue_item.get("id"),
+                queue_item.id,
             )
 
         if not path_hashes_match(expected_path_hashes, path_hashes):
             log().debug(
                 "queued item %s has mismatching expected path hashes: %s != %s",
-                queue_item.get("id"),
+                queue_item.id,
                 expected_path_hashes,
                 path_hashes,
             )
             continue
-        return build_id_from_queue_item(
-            client=jenkins_client.client,
-            queue_id=cast(int, queue_item.get("id")),
+        return await build_id_from_queue_item(
+            client=jenkins_client,
+            queue_id=queue_item.id,
             next_check_sleep=next_check_sleep,
         )
 
@@ -996,6 +992,7 @@ async def identify_matching_build(
 
             # reconstruct a Build object as good as possible
             builds[build_number] = Build(
+                type="WorkflowJob",
                 url=f"{jenkins_client.client.server}/job/{'/job/'.join(p for p in this_build['project_path'].split('/'))}/{build_number}",
                 number=build_number,
                 timestamp=this_timestamp,
@@ -1116,8 +1113,8 @@ async def trigger_build(
 
     return await jenkins_client.build_info(
         job.path,
-        build_id_from_queue_item(
-            client=jenkins_client.client,
+        await build_id_from_queue_item(
+            client=jenkins_client,
             queue_id=jenkins_client.client.build_job(job.path, parameters=params),
             next_check_sleep=next_check_sleep,
         ),

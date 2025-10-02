@@ -46,7 +46,25 @@ def log() -> logging.Logger:
 
 
 class PedanticBaseModel(BaseModel):
-    """Even more pedandic.."""
+    """Even more pedantic.."""
+
+    type: str
+
+    @model_validator(mode="before")
+    @classmethod
+    def correct_base(cls, obj: Json[dict[str, Any]]) -> Json[dict[str, Any]]:
+        # Most (not all unfortunately) objects retrieved by the Jenkins API have
+        # a _class element, which is a hierarchical class identifier, e.g.
+        # 'org.jenkinsci.plugins.workflow.job.WorkflowJob'
+        # This string is hard to work with and attributes with a '_' prefix are
+        # neither pythonic nor pydantic, so we extract the interesting part and
+        # rename it to 'type'
+        return {
+            # pass through all keys but "_class"
+            **{key: value for key, value in obj.items() if key != "_class"},
+            # and turn "_class" into "type" if availabe (taking only the last part)
+            **({"type": obj["_class"].rsplit(".", 1)[-1]} if "_class" in obj else {}),
+        }
 
     class Config:
         """Mandatory docstring"""
@@ -57,17 +75,7 @@ class PedanticBaseModel(BaseModel):
 class JobTreeElement(PedanticBaseModel):
     """Models a Jenkins job build"""
 
-    type: str
     name: str | None
-
-    @model_validator(mode="before")
-    @classmethod
-    def correct(cls, obj: Json[dict[str, Any]]) -> Json[dict[str, Any]]:
-        """Refactor init to match our excpectations"""
-        if "_class" in obj:
-            obj["type"] = obj["_class"].rsplit(".", 1)[-1]
-            del obj["_class"]
-        return obj
 
 
 class Folder(JobTreeElement):
@@ -80,6 +88,8 @@ class Folder(JobTreeElement):
 class SimpleBuild(PedanticBaseModel):
     """Minimal information we can get about a build"""
 
+    # get_running_builds() doesn't get us _class (but get_job_info() does)
+    type: str = "undefined"
     number: int
     url: str
     node: None | str = None
@@ -90,7 +100,6 @@ class SimpleBuild(PedanticBaseModel):
 class Build(SimpleBuild):
     """Models a Jenkins job build"""
 
-    number: int
     timestamp: int  # easier to handle than NaiveDatetime
     duration: int  # easier to handle than timedelta
     result: None | JobResult
@@ -99,13 +108,14 @@ class Build(SimpleBuild):
     inProgress: bool
     parameters: Mapping[str, str | bool]
     nextBuild: None | SimpleBuild = None
+    type: str
 
     # ignore: executor
 
     @model_validator(mode="before")
     @classmethod
-    def correct(cls, obj: Json[dict[str, Any]]) -> Json[dict[str, Any]]:
-        """Refactor init to match our excpectations"""
+    def correct_build(cls, obj: Json[dict[str, Any]]) -> Json[dict[str, Any]]:
+        """Refactor init to match our expectations"""
 
         if obj.get("result") not in {
             None,
@@ -129,18 +139,14 @@ class Build(SimpleBuild):
 
         return {
             **obj,
-            **{
-                "timestamp": obj["timestamp"] // 1000,
-                "duration": obj["duration"] // 1000,
-                "parameters": this_parameters,
-                "path_hashes": path_hashes,
-                "artifacts": [
-                    cast(Mapping[str, str], a)["relativePath"]
-                    for a in cast(GenMapArray, obj["artifacts"])
-                ],
-                # SCM could be retrieved via 'hudson.plugins.git.util.BuildData'
-                # "executor": (executor_value := obj.get("executor")) and executor_value["_class"],
-            },
+            "timestamp": obj["timestamp"] // 1000,
+            "duration": obj["duration"] // 1000,
+            "parameters": this_parameters,
+            "path_hashes": path_hashes,
+            "artifacts": [
+                cast(Mapping[str, str], a)["relativePath"]
+                for a in cast(GenMapArray, obj["artifacts"])
+            ],
         }
 
     def __repr__(self) -> str:
@@ -169,10 +175,11 @@ class SimpleJob(JobTreeElement):
     color: str
     name: None | str = None
     url: str
+    type: Literal["WorkflowJob", "FreeStyleProject", "MatrixProject"]
 
 
 class Job(SimpleJob):
-    """Models a Jenkins job"""
+    """Models a full Jenkins job"""
 
     path: str
     builds: Sequence[SimpleBuild] = []
@@ -188,8 +195,8 @@ class Job(SimpleJob):
 
     @model_validator(mode="before")
     @classmethod
-    def correct(cls, obj: Json[dict[str, Any]]) -> Json[dict[str, Any]]:
-        """Refactor init to match our excpectations"""
+    def correct_job(cls, obj: Json[dict[str, Any]]) -> Json[dict[str, Any]]:
+        """Refactor init to match our expectations"""
         if bool(obj.get("queueItem")) != obj.get("inQueue"):
             log().error(
                 "Inconsistent values for job_info.get('queueItem')=%s and"
@@ -200,7 +207,6 @@ class Job(SimpleJob):
         return {
             **obj,
             "path": obj.get("fullname") or obj.get("fullName"),
-            "type": obj.get("type") or obj.get("_class") and obj["_class"].rsplit(".", 1)[-1],
         }
 
     async def expand(
@@ -227,7 +233,10 @@ class BuildNode(PedanticBaseModel):
     """A build node model"""
 
     name: str
+    displayName: str
     offline: bool
+    # BuildNode instances never have a _class, but we want to derive PedanticBaseModel
+    type: Literal["undefined"] = "undefined"
 
     actions: None | Sequence[dict[str, Any]] = None
     assignedLabels: None | Sequence[dict[str, Any]] = None
@@ -248,12 +257,10 @@ class BuildNode(PedanticBaseModel):
     temporarilyOffline: None | bool = None
     absoluteRemotePath: None | str = None
 
-    displayName: str
-
     @model_validator(mode="before")
     @classmethod
-    def correct(cls, obj: Json[dict[str, Any]]) -> Json[dict[str, Any]]:
-        """Refactor init to match our excpectations"""
+    def correct_node(cls, obj: Json[dict[str, Any]]) -> Json[dict[str, Any]]:
+        """Refactor init to match our expectations"""
         return {
             **obj,
             "name": obj.get("name") or obj.get("displayName"),
@@ -272,8 +279,8 @@ class StageInfo(PedanticBaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def correct(cls, obj: Json[dict[str, Any]]) -> Json[dict[str, Any]]:
-        """Refactor init to match our excpectations"""
+    def correct_stage(cls, obj: Json[dict[str, Any]]) -> Json[dict[str, Any]]:
+        """Refactor init to match our expectations"""
         return {
             "name": obj["name"],
             "begin": obj["startTimeMillis"] // 1000,
@@ -297,8 +304,8 @@ class BuildStages(PedanticBaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def correct(cls, obj: Json[dict[str, Any]]) -> Json[dict[str, Any]]:
-        """Refactor init to match our excpectations"""
+    def correct_buildstages(cls, obj: Json[dict[str, Any]]) -> Json[dict[str, Any]]:
+        """Refactor init to match our expectations"""
         return {
             "id": obj["id"],
             "name": obj["name"],
@@ -326,8 +333,8 @@ class Change(PedanticBaseModel):
 
     @model_validator(mode="before")
     @classmethod
-    def correct(cls, obj: Json[dict[str, Any]]) -> Json[dict[str, Any]]:
-        """Refactor init to match our excpectations"""
+    def correct_change(cls, obj: Json[dict[str, Any]]) -> Json[dict[str, Any]]:
+        """Refactor init to match our expectations"""
         return {
             "id": obj["id"],
             "author": obj["author"]["fullName"],
@@ -351,6 +358,40 @@ def params_from(build_info: GenMap, action_name: str, item_name: str) -> GenMap:
             if action_name == "CustomBuildPropertiesAction":
                 return cast(GenMap, action[item_name])
     return {}
+
+
+class Task(PedanticBaseModel):
+    url: None | str = None
+
+
+class Executable(PedanticBaseModel):
+    """An 'executable' element of a QueueItem"""
+
+    url: str
+    number: int
+
+
+class QueueItem(PedanticBaseModel):
+    """An item on the Jenkins build queue
+    https://javadoc.jenkins-ci.org/hudson/model/Queue.Item.html
+    """
+
+    id: int
+    executable: None | Executable = None
+    parameters: Mapping[str, str | bool]
+    task: Task
+    why: None | str = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def correct_queueitem(cls, obj: Json[dict[str, Any]]) -> Json[dict[str, Any]]:
+        """Refactor init to match our expectations"""
+        return {
+            **obj,
+            "parameters": params_from(
+                build_info=obj, action_name="ParametersAction", item_name="parameters"
+            ),
+        }
 
 
 def apply_common_jenkins_cli_args(parser: ArgumentParser) -> None:
@@ -659,9 +700,14 @@ class AugmentedJenkinsClient:
 
     @asyncify
     @retry(tries=3, delay=1, logger=log())
-    def queue_info(self) -> Sequence[GenMap]:
+    def queue_info(self) -> Sequence[QueueItem]:
         """Async wrapper for get_queue_info()"""
-        return self.client.get_queue_info()
+        return list(map(QueueItem.model_validate, self.client.get_queue_info()))
+
+    @asyncify
+    def queue_item(self, number: int, depth: int = 1) -> QueueItem:
+        """Async wrapper for get_queue_item()"""
+        return QueueItem.model_validate(self.client.get_queue_item(number, depth=depth))
 
     @asyncify
     def build_stages(self, job: str | Sequence[str] | Job, build_number: int) -> BuildStages:
