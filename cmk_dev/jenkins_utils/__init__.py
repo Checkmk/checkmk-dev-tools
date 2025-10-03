@@ -13,11 +13,12 @@ import json
 import logging
 import os
 from argparse import ArgumentParser
-from collections.abc import AsyncIterable, Iterable, Mapping, MutableMapping, Sequence
+from collections.abc import AsyncIterable, Iterable, Mapping, MutableMapping, Sequence, Set
 from configparser import ConfigParser
 from contextlib import suppress
+from datetime import datetime
 from pathlib import Path
-from typing import Any, Literal, Union, cast
+from typing import Any, ClassVar, Literal, Union, cast
 
 import jenkins
 from jenkins import Jenkins
@@ -48,6 +49,7 @@ def log() -> logging.Logger:
 class PedanticBaseModel(BaseModel):
     """Even more pedantic.."""
 
+    _ignored_keys: ClassVar[Set[str]] = set()
     type: str
 
     @model_validator(mode="before")
@@ -60,16 +62,22 @@ class PedanticBaseModel(BaseModel):
         # neither pythonic nor pydantic, so we extract the interesting part and
         # rename it to 'type'
         return {
-            # pass through all keys but "_class"
-            **{key: value for key, value in obj.items() if key != "_class"},
+            # pass through all keys but "_class" and all keys in `_ignored_keys`
+            **{
+                key: value
+                for key, value in obj.items()
+                if key not in cls._ignored_keys and key != "_class"
+            },
             # and turn "_class" into "type" if availabe (taking only the last part)
             **({"type": obj["_class"].rsplit(".", 1)[-1]} if "_class" in obj else {}),
         }
 
     class Config:
         """Mandatory docstring"""
-
-    #     extra = Extra.forbid
+        # Activate this in ordert to enforce a stricter pydantic validation which
+        # raises on unknown attributes. Activate it in development only since it will
+        # break runtimes when Jenkins API changes again.
+        #  extra = "forbid"
 
 
 class JobTreeElement(PedanticBaseModel):
@@ -82,19 +90,25 @@ class Folder(JobTreeElement):
     """Dummy folder element"""
 
     type: str = "Folder"
-    # ignore: url, jobs
+
+    _ignored_keys = {
+        "url",
+        "jobs",
+        "fullname",
+    }
 
 
 class SimpleBuild(PedanticBaseModel):
     """Minimal information we can get about a build"""
 
-    # get_running_builds() doesn't get us _class (but get_job_info() does)
-    type: str = "undefined"
     number: int
     url: str
     node: None | str = None
 
-    # ignore: name, executor, type
+    # remove `type` (get_running_builds() doesn't get us _class)
+    type: str = "undefined"
+
+    _ignored_keys = {"executor", "name"}
 
 
 class Build(SimpleBuild):
@@ -110,7 +124,21 @@ class Build(SimpleBuild):
     nextBuild: None | SimpleBuild = None
     type: str
 
-    # ignore: executor
+    _ignored_keys = {
+        "actions",
+        "building",
+        "changeSets",
+        "culprits",
+        "description",
+        "displayName",
+        "estimatedDuration",
+        "executor",
+        "fullDisplayName",
+        "id",
+        "keepLog",
+        "previousBuild",
+        "queueId",
+    }
 
     @model_validator(mode="before")
     @classmethod
@@ -187,8 +215,34 @@ class Job(SimpleJob):
     lastSuccessfulBuild: None | SimpleBuild = None
     lastCompletedBuild: None | SimpleBuild = None
 
-    # ignore: actions: None | Sequence[dict[str, Any]] = None
-    # ignore: description, displayName, displayNameOrNull, fullDisplayName, fullName, buildable
+    _ignored_keys = {
+        "actions",
+        "buildable",
+        "concurrentBuild",
+        "description",
+        "disabled",
+        "displayName",
+        "displayNameOrNull",
+        "downstreamProjects",
+        "firstBuild",
+        "fullDisplayName",
+        "fullName",
+        "healthReport",
+        "inQueue",
+        "keepDependencies",
+        "labelExpression",
+        "lastBuild",
+        "lastFailedBuild",
+        "lastStableBuild",
+        "lastUnstableBuild",
+        "lastUnsuccessfulBuild",
+        "nextBuildNumber",
+        "property",
+        "queueItem",
+        "resumeBlocked",
+        "scm",
+        "upstreamProjects",
+    }
 
     def __str__(self) -> str:
         return f"Job('{self.path}', {len(self.builds or [])} builds)"
@@ -234,28 +288,30 @@ class BuildNode(PedanticBaseModel):
 
     name: str
     displayName: str
-    offline: bool
+
     # BuildNode instances never have a _class, but we want to derive PedanticBaseModel
     type: Literal["undefined"] = "undefined"
-
-    actions: None | Sequence[dict[str, Any]] = None
-    assignedLabels: None | Sequence[dict[str, Any]] = None
-    description: None | str = None
-    executors: None | Sequence[dict[str, Any]] = None
-    icon: None | str = None
-    iconClassName: None | str = None
-    idle: None | bool = None
-    jnlpAgent: None | bool = None
-    launchSupported: None | bool = None
-    loadStatistics: None | dict[str, Any] = None
-    manualLaunchAllowed: None | bool = None
-    monitorData: None | dict[str, Any] = None
-    numExecutors: None | int = None
-    offlineCause: None | str = None
-    offlineCauseReason: None | str = None
-    oneOffExecutors: None | Sequence[dict[str, Any]] = None
-    temporarilyOffline: None | bool = None
-    absoluteRemotePath: None | str = None
+    _ignored_keys = {
+        "offline",  # : bool
+        "absoluteRemotePath",  # : None | str = None
+        "actions",  # : None | Sequence[dict[str, Any]] = None
+        "assignedLabels",  # : None | Sequence[dict[str, Any]] = None
+        "description",  # : None | str = None
+        "executors",  # : None | Sequence[dict[str, Any]] = None
+        "iconClassName",  # : None | str = None
+        "icon",  # : None | str = None
+        "idle",  # : None | bool = None
+        "jnlpAgent",  # : None | bool = None
+        "launchSupported",  # : None | bool = None
+        "loadStatistics",  # : None | dict[str, Any] = None
+        "manualLaunchAllowed",  # : None | bool = None
+        "monitorData",  # : None | dict[str, Any] = None
+        "numExecutors",  # : None | int = None
+        "offlineCause",  # : None | dict[str, Any] = None
+        "offlineCauseReason",  # : None | str = None
+        "oneOffExecutors",  # : None | Sequence[dict[str, Any]] = None
+        "temporarilyOffline",  # : None | bool = None
+    }
 
     @model_validator(mode="before")
     @classmethod
@@ -363,12 +419,64 @@ def params_from(build_info: GenMap, action_name: str, item_name: str) -> GenMap:
 class Task(PedanticBaseModel):
     url: None | str = None
 
+    _ignored_keys = {
+        "actions",
+        "buildable",
+        "builds",
+        "color",
+        "concurrentBuild",
+        "description",
+        "disabled",
+        "displayName",
+        "displayNameOrNull",
+        "firstBuild",
+        "fullDisplayName",
+        "fullName",
+        "healthReport",
+        "inQueue",
+        "keepDependencies",
+        "lastBuild",
+        "lastCompletedBuild",
+        "lastFailedBuild",
+        "lastStableBuild",
+        "lastSuccessfulBuild",
+        "lastUnstableBuild",
+        "lastUnsuccessfulBuild",
+        "name",
+        "nextBuildNumber",
+        "property",
+        "queueItem",
+        "resumeBlocked",
+    }
+
 
 class Executable(PedanticBaseModel):
     """An 'executable' element of a QueueItem"""
 
-    url: str
     number: int
+    url: str
+
+    _ignored_keys = {
+        "actions",
+        "artifacts",
+        "building",
+        "changeSets",
+        "culprits",
+        "description",
+        "displayName",
+        "duration",
+        "estimatedDuration",
+        "executor",
+        "fullDisplayName",
+        "id",
+        "inProgress",
+        "keepLog",
+        "nextBuild",
+        "previousBuild",
+        "queueId",
+        "result",
+        "timestamp",
+    }
 
 
 class QueueItem(PedanticBaseModel):
@@ -377,10 +485,24 @@ class QueueItem(PedanticBaseModel):
     """
 
     id: int
+    blocked: bool
+    buildable: bool
+    cancelled: None | bool = None
     executable: None | Executable = None
+    inQueueSince: datetime
     parameters: Mapping[str, str | bool]
+    pending: None | bool = None
+    stuck: bool
     task: Task
     why: None | str = None
+
+    _ignored_keys = {
+        "actions",  # might have parameters
+        "buildableStartMilliseconds",
+        "params",
+        "timestamp",
+        "url",  # queue/item/<id>/
+    }
 
     @model_validator(mode="before")
     @classmethod
