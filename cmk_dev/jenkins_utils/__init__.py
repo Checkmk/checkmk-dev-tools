@@ -186,13 +186,12 @@ class Build(SimpleBuild):
         }:
             log().error("Build result has unexpected value %s", obj.get("result"))
 
-        # hack to create Job build with InfluxDB data
-        if "parameters" in obj:
-            this_parameters = obj["parameters"]
-        else:
-            this_parameters = params_from(
-                build_info=obj, action_name="ParametersAction", item_name="parameters"
-            )
+        # since some Build attributes get extracted from the 'actions' attribute
+        # for convenience reasons, it must be able to both take them from the constructor
+        # or - if not available fall back to the 'actions' list
+        parameters = obj.get("parameters") or params_from(
+            build_info=obj, action_name="ParametersAction", item_name="parameters"
+        )
         causes = obj.get("causes") or [
             Cause.model_validate(cause)
             for cause in cast(
@@ -200,13 +199,15 @@ class Build(SimpleBuild):
                 params_from(build_info=obj, action_name="CauseAction", item_name="causes"),
             )
         ]
-        path_hashes = split_params(cast(str, this_parameters.get("DEPENDENCY_PATH_HASHES", "")))
+        path_hashes = split_params(cast(str, parameters.get("DEPENDENCY_PATH_HASHES", "")))
 
         return {
             **obj,
-            "timestamp": obj["timestamp"] // 1000,
+            "timestamp": obj["timestamp"] // 1000
+            if obj["timestamp"] > 9_999_999_999  # noqa: PLR2004  - this constant is self explanatory
+            else obj["timestamp"],
             "duration": obj["duration"] // 1000,
-            "parameters": this_parameters,
+            "parameters": parameters,
             "causes": causes,
             "path_hashes": path_hashes,
             "artifacts": [
