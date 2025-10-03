@@ -1201,7 +1201,11 @@ def main() -> None:
             logger.setLevel(args.log_level)
 
         log().debug("Parsed args: %s", args)
-        asyncio.run(args.func(args))
+        if asyncio.iscoroutinefunction(args.func):
+            asyncio.run(args.func(args))
+        else:
+            args.func(args)
+
     except KeyboardInterrupt:
         if not shared_build_info.empty():
             if query_yes_no(question="Cancel ongoing build?"):
