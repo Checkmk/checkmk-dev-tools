@@ -42,6 +42,7 @@ from .jenkins_utils import (
     JobParamValue,
     JobResult,
     QueueId,
+    QueueItem,
     apply_common_jenkins_cli_args,
     extract_credentials,
 )
@@ -579,6 +580,37 @@ async def build_id_from_queue_item(
         await asyncio.sleep(next_check_sleep)
 
 
+def job_url_from_queue_item(queue_item: QueueItem) -> None | str:
+    """Fiddles the (relative) job URL out of a queue item if present
+    >>> base = {"type": "Queue", "id": 42, "blocked": False, "buildable": False, "inQueueSince": 0,
+    ...         "stuck": False}
+    >>> job_url_from_queue_item(QueueItem(**base,
+    ...     task={"type": "egal"}))
+    >>> job_url_from_queue_item(QueueItem(**base,
+    ...     task={"type": "egal", "url": "job/nested/job/project/job/do-it-all/1/"}))
+    'job/nested/job/project/job/do-it-all/'
+    >>> job_url_from_queue_item(QueueItem(**base,
+    ...     task={"type": "egal", "url": "https://my.ci.com/job/nested/job/project/job/do-it-all/"}))
+    'job/nested/job/project/job/do-it-all/'
+    >>> job_url_from_queue_item(QueueItem(**base,
+    ...     task={"type": "egal"},
+    ...     executable={"type": "egal", "number": 1,
+    ...                 "url": "https://my.ci.com/job/nested/job/project/job/do-it-all/1/"}))
+    'job/nested/job/project/job/do-it-all/'
+    """
+    # executable can be None and executable.url is always a build url - strip it off the build number
+    if queue_item.executable and (job_url := f"{queue_item.executable.url.rsplit('/', 2)[0]}/"):
+        return job_url[job_url.find("/job/") + 1 :]
+    # task.url can be None, too, unfortunately
+    if queue_item.task.url is None:
+        return None
+    if queue_item.task.url.startswith("http"):
+        # if url is absolute, it's a job url
+        return queue_item.task.url[queue_item.task.url.find("/job/") + 1 :]
+    # otherwise it's a relative path to a build url - make it absolute and strip off the build number
+    return f"{queue_item.task.url.rsplit('/', 2)[0]}/"
+
+
 async def find_matching_queue_item(
     jenkins_client: AugmentedJenkinsClient,
     job: Job,
@@ -587,9 +619,18 @@ async def find_matching_queue_item(
     next_check_sleep: int = 30,
 ) -> None | BuildId:
     """Looks for a queued build matching job and parameters and returns the QueueId"""
-    for queue_item in await jenkins_client.queue_info():
-        if queue_item.task.url != job.url:
+    for simple_queue_item in await jenkins_client.queue_info():
+        queue_item = await jenkins_client.queue_item(simple_queue_item.id, depth=2)
+
+        # In order to compare with `job.url` we would have to inject the jenkins base URL
+        # Instead we can also strip it off from `job.url` and compare relative URLs instead
+        # Instead of "https://ci.com/job/name/42/" == "https://ci.com/job/name/42/" we compare
+        # "job/name/42/" == "job/name/42/" here
+        if job.url[job.url.find("/job/") + 1 :] != job_url_from_queue_item(queue_item):
             continue
+
+        if job.url != queue_item.task.url:
+            log().debug("(ignore me) queue item would have been skipped before bugfix")
 
         mismatching_parameters = find_mismatching_parameters(
             params or {},
