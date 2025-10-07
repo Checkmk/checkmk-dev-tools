@@ -237,9 +237,9 @@ def parse_args() -> Args:
     return parser.parse_args()
 
 
-def log(no_simple_logging: bool = False) -> logging.Logger:
+def log() -> logging.Logger:
     """Convenience function retrieves 'our' logger"""
-    return logging.getLogger("trickkiste.cmk-dev.cia" if no_simple_logging else __name__)
+    return logging.getLogger("trickkiste.cmk-dev.cia")
 
 
 def flatten(params: None | Sequence[JobParams]) -> None | JobParams:
@@ -1195,10 +1195,12 @@ def main() -> None:
         else:
             logging.basicConfig(
                 format="[%(asctime)s] [%(levelname)-8s] [%(funcName)-5s:%(lineno)4s] %(message)s",
-                level=logging.INFO,
+                datefmt="%Y-%m-%d %H:%M:%S",
+                level=logging.DEBUG if args.log_level == "ALL_DEBUG" else logging.INFO,
             )
-            logger = logging.getLogger(__name__)
-            logger.setLevel(args.log_level)
+            # trickkiste supports level=ALL_DEBUG which sets all loggers to DEBUG,
+            # let's not brake this.
+            logging.getLogger("trickkiste").setLevel(args.log_level.split("_")[-1])
 
         log().debug("Parsed args: %s", args)
         if asyncio.iscoroutinefunction(args.func):

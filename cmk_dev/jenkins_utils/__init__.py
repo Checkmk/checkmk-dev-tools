@@ -40,9 +40,9 @@ BuildId = int
 JobResult = Literal["FAILURE", "SUCCESS", "ABORTED", "UNSTABLE", "PROGRESS", "RUNNING"]
 
 
-def log(no_simple_logging: bool = False) -> logging.Logger:
+def log() -> logging.Logger:
     """Convenience function retrieves 'our' logger"""
-    return logging.getLogger("trickkiste.cmk-dev.jenkins" if no_simple_logging else "cmk_dev.ci_artifacts")
+    return logging.getLogger("trickkiste.cmk-dev.jenkins")
 
 
 class PedanticBaseModel(BaseModel):
