@@ -69,6 +69,12 @@ def parse_args() -> Args:
     subparsers = parser.add_subparsers(help="available commands", metavar="CMD")
 
     parser.add_argument("--version", action="version", version=__version__)
+    parser.add_argument(
+        "--simple-logging",
+        dest="simple_logging",
+        action="store_true",
+        help="Use default logging instead of a rich based one with color and formatting",
+    )
 
     parser_info = subparsers.add_parser(
         "info",
@@ -115,12 +121,6 @@ def parse_args() -> Args:
             dest="no_raise",
             action="store_true",
             help="Do not raise an Exception in case of errors",
-        )
-        subparser.add_argument(
-            "--no-simple-logging",
-            dest="no_simple_logging",
-            action="store_true",
-            help="Use colored and linebreaking rich logger over default python logger",
         )
         subparser.add_argument(
             "--ignore-build-queue",
@@ -1269,7 +1269,16 @@ def main() -> None:
     try:
         args = parse_args()
 
-        if args.no_simple_logging:
+        if args.simple_logging:
+            logging.basicConfig(
+                format="[%(asctime)s] [%(levelname)-8s] [%(funcName)-5s:%(lineno)4s] %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S",
+                level=logging.DEBUG if args.log_level == "ALL_DEBUG" else logging.INFO,
+            )
+            # trickkiste supports level=ALL_DEBUG which sets all loggers to DEBUG,
+            # let's not brake this.
+            logging.getLogger("trickkiste").setLevel(args.log_level.split("_")[-1])
+        else:
             # for some reasons terminal type and properties are not recognized correctly by rich,
             # so 'temporarily' we force width and color
             if "CI" in os.environ:
@@ -1282,15 +1291,6 @@ def main() -> None:
                 show_name=False,
                 show_funcname=False,
             )
-        else:
-            logging.basicConfig(
-                format="[%(asctime)s] [%(levelname)-8s] [%(funcName)-5s:%(lineno)4s] %(message)s",
-                datefmt="%Y-%m-%d %H:%M:%S",
-                level=logging.DEBUG if args.log_level == "ALL_DEBUG" else logging.INFO,
-            )
-            # trickkiste supports level=ALL_DEBUG which sets all loggers to DEBUG,
-            # let's not brake this.
-            logging.getLogger("trickkiste").setLevel(args.log_level.split("_")[-1])
 
         log().debug("Parsed args: %s", ", ".join(f"{k}={v}" for k, v in args.__dict__.items()))
         log().debug("cmk-devops-tools version: %s from %s", __version__, Path(__file__).parent)
