@@ -25,6 +25,7 @@ class JenkinsException(BaseException):
 class Jenkins:
     _session: Session
     auth: Auth
+    server: str
 
     def __init__(self, url: str, username: str, password: str, timeout: int, retries: int) -> None:
         ...
@@ -44,7 +45,7 @@ class Jenkins:
     def build_job(self, job_full_path: str, parameters: None | GenMap) -> int:
         ...
 
-    def get_queue_item(self, queue_id: int) -> dict[str, dict[str, int]]:
+    def get_queue_item(self, queue_id: int, depth: int = 0) -> dict[str, dict[str, int]]:
         ...
 
     def get_queue_info(self) -> Sequence[GenMap]:
@@ -67,3 +68,4 @@ class Jenkins:
 
     def stop_build(self, name: str, number: int) -> None:
         ...
+    def get_build_console_output(self, job_full_path: str, number: int) -> str: ...

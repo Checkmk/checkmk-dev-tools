@@ -969,7 +969,7 @@ async def identify_matching_build(
 
             # reconstruct a Build object as good as possible
             builds[build_number] = Build(
-                url=f"{jenkins_client.client.server}/job/{'/job/'.join(p for p in this_build['project_path'].split('/'))}/{build_number}",  # type: ignore[attr-defined]
+                url=f"{jenkins_client.client.server}/job/{'/job/'.join(p for p in this_build['project_path'].split('/'))}/{build_number}",
                 number=build_number,
                 timestamp=this_timestamp,
                 duration=this_duration,
