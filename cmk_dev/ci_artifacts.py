@@ -1001,7 +1001,10 @@ async def identify_matching_build(
 
         build: Build
         builds: MutableMapping[int, Build] = {}
-        for this_build in matching_builds:
+        # iterate over the results in latest to oldest order
+        # to return the latest build instead of the first match
+        # to take rebuilds and reruns into account
+        for this_build in matching_builds[::-1]:
             # if a job with this build number exists already, update it in the dict
             # be prepared for timestamps with or without milliseconds
             try:
