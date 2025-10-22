@@ -13,7 +13,14 @@ import json
 import logging
 import os
 from argparse import ArgumentParser
-from collections.abc import AsyncIterable, Iterable, Mapping, MutableMapping, Sequence, Set
+from collections.abc import (
+    AsyncIterable,
+    Iterable,
+    Mapping,
+    MutableMapping,
+    Sequence,
+    Set,
+)
 from configparser import ConfigParser
 from contextlib import suppress
 from datetime import datetime
@@ -23,8 +30,7 @@ from typing import Any, ClassVar, Literal, Union, cast
 import jenkins
 from jenkins import Jenkins
 from pydantic import BaseModel, Json, model_validator
-from retry import retry
-from trickkiste.misc import asyncify, compact_dict, date_str, dur_str, split_params
+from trickkiste.misc import async_retry, asyncify, compact_dict, date_str, dur_str, split_params
 
 from cmk_dev.utils import Fatal
 
@@ -39,6 +45,8 @@ QueueId = int
 BuildId = int
 
 JobResult = Literal["FAILURE", "SUCCESS", "ABORTED", "UNSTABLE", "PROGRESS", "RUNNING"]
+
+MAX_ATTEMPTS = 3
 
 
 def log() -> logging.Logger:
@@ -74,6 +82,7 @@ class PedanticBaseModel(BaseModel):
 
     class Config:
         """Mandatory docstring"""
+
         # Activate this in ordert to enforce a stricter pydantic validation which
         # raises on unknown attributes. Activate it in development only since it will
         # break runtimes when Jenkins API changes again.
@@ -793,15 +802,13 @@ class AugmentedJenkinsClient:
             last_build.number if last_build else None,
         )
 
-    @asyncify
-    @retry(tries=3, delay=1, logger=log())
-    def raw_jobs(self) -> GenMap:
+    @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
+    async def raw_jobs(self) -> GenMap:
         """Async wrapper for get_jobs()"""
         return self.client.get_jobs()
 
-    @asyncify
-    @retry(tries=3, delay=1, logger=log())
-    def raw_job_info(self, job_full_name: str) -> GenMap:
+    @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
+    async def raw_job_info(self, job_full_name: str) -> GenMap:
         """Fetches Jenkins job info for @job_full_name"""
         log().debug("fetch job info for %s", job_full_name)
         return self.client.get_job_info(job_full_name)
@@ -814,14 +821,12 @@ class AugmentedJenkinsClient:
             )
         )
 
-    @asyncify
-    @retry(tries=3, delay=1, logger=log())
-    def raw_build_info(self, job_full_name: str, build_number: int) -> GenMap:
+    @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
+    async def raw_build_info(self, job_full_name: str, build_number: int) -> GenMap:
         """Returns raw Jenkins job info for @job_full_name"""
         log().debug("fetch build log for %s:%d", job_full_name, build_number)
         return self.client.get_build_info(job_full_name, build_number)
 
-    @retry(tries=3, delay=1, logger=log())
     async def build_info(self, job_full_name: str | Sequence[str], build_number: int) -> Build:
         """Fetches Jenkins build info for @job_full_name#@build_number"""
         return Build.model_validate(
@@ -831,19 +836,18 @@ class AugmentedJenkinsClient:
             )
         )
 
-    @asyncify
-    @retry(tries=3, delay=1, logger=log())
-    def queue_info(self) -> Sequence[QueueItem]:
+    @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
+    async def queue_info(self) -> Sequence[QueueItem]:
         """Async wrapper for get_queue_info()"""
         return list(map(QueueItem.model_validate, self.client.get_queue_info()))
 
-    @asyncify
-    def queue_item(self, number: int, depth: int = 1) -> QueueItem:
+    @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
+    async def queue_item(self, number: int, depth: int = 1) -> QueueItem:
         """Async wrapper for get_queue_item()"""
         return QueueItem.model_validate(self.client.get_queue_item(number, depth=depth))
 
-    @asyncify
-    def build_stages(self, job: str | Sequence[str] | Job, build_number: int) -> BuildStages:
+    @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
+    async def build_stages(self, job: str | Sequence[str] | Job, build_number: int) -> BuildStages:
         """Returns validated build stages info"""
         return BuildStages.model_validate(
             self.client.get_build_stages(
@@ -858,8 +862,8 @@ class AugmentedJenkinsClient:
             )
         )
 
-    @asyncify
-    def fetch_jvm_ressource_stats(self) -> Mapping[str, int]:
+    @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
+    async def fetch_jvm_ressource_stats(self) -> Mapping[str, int]:
         """Returns information about available and used memory in JVM"""
         log().debug("fetch JVM ressource stats via script")
         return {
@@ -881,18 +885,18 @@ class AugmentedJenkinsClient:
             ).items()
         }
 
-    @asyncify
-    def running_builds(self) -> Sequence[SimpleBuild]:
+    @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
+    async def running_builds(self) -> Sequence[SimpleBuild]:
         """Async validating wrapper for Jenkins.get_running_builds()"""
         return list(map(SimpleBuild.model_validate, self.client.get_running_builds()))
 
-    @asyncify
-    def build_nodes(self) -> Sequence[BuildNode]:
+    @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
+    async def build_nodes(self) -> Sequence[BuildNode]:
         """Async validating wrapper for Jenkins.get_nodes()"""
         return list(map(BuildNode.model_validate, self.client.get_nodes()))
 
-    @asyncify
-    def node_info(self, name: str) -> BuildNode:
+    @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
+    async def node_info(self, name: str) -> BuildNode:
         """Async validating wrapper for Jenkins.get_node_info()"""
         return BuildNode.model_validate(self.client.get_node_info(name))
 
