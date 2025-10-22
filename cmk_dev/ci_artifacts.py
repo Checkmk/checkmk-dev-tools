@@ -1179,20 +1179,29 @@ async def await_build(
     """Awaits a Jenkins job build specified by @job_full_path and @build_number and returns the
     awaited Build object. Unexpected build failures or non-matching path hashes will be raised on.
     """
-    current_build_info = await jenkins_client.build_info(job_full_path, build_number)
-    if not current_build_info.completed:
-        log().info("build #%s still in progress (%s)", build_number, current_build_info.url)
-        if allow_to_cancel:
-            await shared_build_info.put(json.dumps({"path": job_full_path, "number": build_number}))
-        while True:
+    MAX_RETRIES = 2
+    for attempts_left in range(MAX_RETRIES, -1, -1):
+        try:
+            current_build_info = await jenkins_client.build_info(job_full_path, build_number)
             if not current_build_info.completed:
-                log().debug("build %s in progress", build_number)
-                time.sleep(next_check_sleep)
-                current_build_info = await jenkins_client.build_info(job_full_path, build_number)
-                continue
-            break
+                log().info("build #%s still in progress (%s)", build_number, current_build_info.url)
+                if allow_to_cancel:
+                    await shared_build_info.put(json.dumps({"path": job_full_path, "number": build_number}))
+                while True:
+                    if not current_build_info.completed:
+                        log().debug("build %s in progress", build_number)
+                        time.sleep(next_check_sleep)
+                        current_build_info = await jenkins_client.build_info(job_full_path, build_number)
+                        continue
+                    break
 
-        log().info("build finished with result=%s", current_build_info.result)
+                log().info("build finished with result=%s", current_build_info.result)
+        except requests.exceptions.ConnectionError as exc:
+            if not attempts_left:
+                raise
+            log().warning(
+                "await_build() caught %r (%s retries left)", exc, attempts_left
+            )
 
     if all([check_result, current_build_info.result != "SUCCESS", not no_raise]):
         raise Fatal(
