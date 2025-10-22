@@ -55,6 +55,7 @@ from .version import __version__
 
 PathHashes = Mapping[str, str]
 shared_build_info: asyncio.Queue[str] = asyncio.Queue(maxsize=1)
+MAX_RETRY_ATTEMPTS = 2
 
 
 def parse_args() -> Args:
@@ -364,8 +365,7 @@ def download_artifacts(
                 fp_hash,
             )
 
-        MAX_RETRIES = 2
-        for attempts_left in range(MAX_RETRIES, -1, -1):
+        for attempts_left in range(MAX_RETRY_ATTEMPTS, -1, -1):
             time_start = time.time()
             try:
                 with client._session.get(f"{build.url}artifact/{artifact}", stream=True) as reply:
