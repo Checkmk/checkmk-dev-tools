@@ -753,20 +753,21 @@ class AugmentedJenkinsClient:
             timeout=timeout if timeout is not None else 60,
             retries=5,
         )
+        self._api_call_count = 0
 
     def __enter__(self) -> "AugmentedJenkinsClient":
         """Checks connection by validating sync_whoami()"""
         return self
 
     def __exit__(self, *args: object) -> None:
-        pass
+        log().debug(f"number of API calls done: {self._api_call_count}")
 
     async def __aenter__(self) -> "AugmentedJenkinsClient":
         """Checks connection by validating sync_whoami()"""
         return self
 
     async def __aexit__(self, *args: object) -> None:
-        pass
+        log().debug(f"number of API calls done: {self._api_call_count}")
 
     @asyncify
     def whoami(self) -> Mapping[str, str]:
@@ -781,6 +782,7 @@ class AugmentedJenkinsClient:
         # no clue why. So we deactivate this level temporarily until we know better
         level = logging.getLogger("requests_kerberos.kerberos_").level
         logging.getLogger("requests_kerberos.kerberos_").setLevel(logging.FATAL)
+        self._api_call_count += 1
         whoami = self.client.get_whoami()
         logging.getLogger("requests_kerberos.kerberos_").setLevel(level)
         return whoami
@@ -892,6 +894,7 @@ class AugmentedJenkinsClient:
     @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
     async def raw_jobs(self) -> GenMap:
         """Async wrapper for get_jobs()"""
+        self._api_call_count += 1
         return self.client.get_jobs()
 
     @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
@@ -899,6 +902,7 @@ class AugmentedJenkinsClient:
         """Fetches Jenkins job info for @job"""
         job_path = self.job_path_from(job)
         log().debug("fetch job info for %s", job_path)
+        self._api_call_count += 1
         return self.client.get_job_info(job_path)
 
     async def job_info(self, job: JobSpecifier) -> Job:
@@ -910,6 +914,7 @@ class AugmentedJenkinsClient:
         job_path = self.job_path_from(job)
         url = f"{'/job/'.join((self.client.server, *(job_path.split('/'))))}/wfapi/runs"
         log().debug("fetch run information for %s", job_path)
+        self._api_call_count += 1
         return cast(GenMap, self.client._session.get(url).json())  # noqa: SLF001
 
     @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
@@ -917,6 +922,7 @@ class AugmentedJenkinsClient:
         """Returns raw Jenkins job info for @job"""
         job_path = self.job_path_from(job)
         log().debug("fetch build info for %s:%d", job_path, build_number)
+        self._api_call_count += 1
         return self.client.get_build_info(job_path, build_number)
 
     async def build_info(self, job: JobSpecifier, build_number: int) -> Build:
@@ -926,11 +932,13 @@ class AugmentedJenkinsClient:
     @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
     async def queue_info(self) -> Sequence[QueueItem]:
         """Async wrapper for get_queue_info()"""
+        self._api_call_count += 1
         return list(map(QueueItem.model_validate, self.client.get_queue_info()))
 
     @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
     async def queue_item(self, number: int, depth: int = 1) -> QueueItem:
         """Async wrapper for get_queue_item()"""
+        self._api_call_count += 1
         return QueueItem.model_validate(self.client.get_queue_item(number, depth=depth))
 
     @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
@@ -938,6 +946,7 @@ class AugmentedJenkinsClient:
         """Returns raw build stages for given build"""
         job_path = self.job_path_from(job)
         log().debug("fetch build stages for %s:%d", job_path, build_number)
+        self._api_call_count += 1
         return self.client.get_build_stages(job_path, build_number)
 
     async def build_stages(self, job: JobSpecifier, build_number: int) -> BuildStages:
@@ -947,12 +956,14 @@ class AugmentedJenkinsClient:
     @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
     async def build_console_output(self, job: JobSpecifier, build_number: int) -> str:
         """Returns the build log for a given build"""
+        self._api_call_count += 1
         return str(self.client.get_build_console_output(self.job_path_from(job), build_number))
 
     @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
     async def fetch_jvm_ressource_stats(self) -> Mapping[str, int]:
         """Returns information about available and used memory in JVM"""
         log().debug("fetch JVM ressource stats via script")
+        self._api_call_count += 1
         return {
             key: int(value)
             for key, value in json.loads(
@@ -975,16 +986,19 @@ class AugmentedJenkinsClient:
     @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
     async def running_builds(self) -> Sequence[SimpleBuild]:
         """Async validating wrapper for Jenkins.get_running_builds()"""
+        self._api_call_count += 1
         return list(map(SimpleBuild.model_validate, self.client.get_running_builds()))
 
     @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
     async def build_nodes(self) -> Sequence[BuildNode]:
         """Async validating wrapper for Jenkins.get_nodes()"""
+        self._api_call_count += 1
         return list(map(BuildNode.model_validate, self.client.get_nodes()))
 
     @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
     async def node_info(self, name: str) -> BuildNode:
         """Async validating wrapper for Jenkins.get_node_info()"""
+        self._api_call_count += 1
         return BuildNode.model_validate(self.client.get_node_info(name))
 
     async def stages(self, job: JobSpecifier) -> Mapping[int, Sequence[StageInfo]]:
@@ -996,6 +1010,9 @@ class AugmentedJenkinsClient:
             ]
             for run in await self.raw_run_info(job)
         }
+
+    def api_call_count(self) -> int:
+        return self._api_call_count
 
 
 async def main() -> None:  # pylint: disable=too-many-locals
