@@ -27,8 +27,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, ClassVar, Literal, Union, cast
 
-import jenkins
-from jenkins import Jenkins
+from jenkins import Jenkins, JenkinsException
 from pydantic import BaseModel, Json, model_validator
 from trickkiste.misc import async_retry, asyncify, compact_dict, date_str, dur_str, split_params
 
@@ -280,7 +279,7 @@ class Job(SimpleJob):
         """Fetches elements which are not part of the simple job instance"""
 
         async def resilient_build_info(path: str, number: int) -> Build | None:
-            with suppress(jenkins.JenkinsException):
+            with suppress(JenkinsException):
                 return await jenkins_client.build_info(path, number)
             return None
 
@@ -762,7 +761,7 @@ class AugmentedJenkinsClient:
             all_change_sets = (
                 await self.raw_build_info(job if isinstance(job, str) else job.path, build_nr)
             )["changeSets"]
-        except jenkins.JenkinsException as exc:
+        except JenkinsException as exc:
             log().error("Could not fetch change sets: %s", exc)
             return []
 
