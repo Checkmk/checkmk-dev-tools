@@ -428,26 +428,43 @@ class StageInfo(PedanticBaseModel):
     """Historic information about a pipeline stage"""
 
     name: str
-    begin: int
-    duration: int
-    execNode: str
-
-    # StageInfo instances not always have a _class, but we want to derive PedanticBaseModel
-    type: str = "StageInfo"
-
+    duration_sec: int
+    pause_sec: int
+    error_str: None | str = None
     # not the same as JobResult unfortunately
     status: Literal["FAILED", "IN_PROGRESS", "SUCCESS", "ABORTED", "NOT_EXECUTED", "UNSTABLE"]
+
+    # StageInfo instances don't have a _class, but we want to derive PedanticBaseModel
+    type: str = "StageInfo"
+
+    _ignored_keys = {
+        "_links",  # not needed
+        "id",  # not needed
+        "execNode",  # not needed
+        "startTimeMillis",  # gets translated
+        "pauseDurationMillis",  # gets translated
+        "durationMillis",  # gets translated
+        "error",  # gets translated
+    }
 
     @model_validator(mode="before")
     @classmethod
     def correct_stage(cls, obj: Json[dict[str, Any]]) -> Json[dict[str, Any]]:
         """Refactor init to match our expectations"""
+        assert obj.get("execNode", "") == "", f"execNode {obj.get('execNode')}"
+        error = cast(None | dict[str, str], obj.get("error"))
+        if error:
+            assert list(error) == ["message", "type"], f"error {error}"
         return {
-            "name": obj["name"],
-            "begin": obj["startTimeMillis"] // 1000,
-            "duration": obj["durationMillis"] // 1000,
-            "execNode": obj["execNode"],
-            "status": obj["status"],
+            **obj,
+            "duration_sec": duration_sec
+            if (duration_sec := obj.get("duration_sec")) is not None
+            else obj["durationMillis"] // 1000,
+            "pause_sec": pause_sec
+            if (pause_sec := obj.get("pause_sec")) is not None
+            else obj["pauseDurationMillis"] // 1000,
+            "error_str": obj.get("error_str")
+            or (error and f"{error['type'].rsplit('.', maxsplit=1)[-1]}: {error['message']}"),
         }
 
 
@@ -455,31 +472,22 @@ class BuildStages(PedanticBaseModel):
     """Information about build stages"""
 
     stages: Sequence[StageInfo]
-    begin: int
-    duration: int
-    end: int
-    id: str
-    name: str
-    status: str
+    # we omit all other infos here for now - all information can be taken from Build
 
     # StageInfo instances not always have a _class, but we want to derive PedanticBaseModel
     type: Literal["undefined"] = "undefined"
 
-    # ignore: pauseDurationMillis, queueDurationMillis, _links
-
-    @model_validator(mode="before")
-    @classmethod
-    def correct_buildstages(cls, obj: Json[dict[str, Any]]) -> Json[dict[str, Any]]:
-        """Refactor init to match our expectations"""
-        return {
-            "id": obj["id"],
-            "name": obj["name"],
-            "begin": obj["startTimeMillis"] // 1000,
-            "duration": obj["durationMillis"] // 1000,
-            "end": obj["endTimeMillis"] // 1000,
-            "status": obj["status"],
-            "stages": obj["stages"],
-        }
+    _ignored_keys = {
+        "id",
+        "name",
+        "status",
+        "startTimeMillis",
+        "durationMillis",
+        "endTimeMillis",
+        "_links",
+        "queueDurationMillis",
+        "pauseDurationMillis",
+    }
 
 
 class Change(PedanticBaseModel):
@@ -919,11 +927,15 @@ class AugmentedJenkinsClient:
         return QueueItem.model_validate(self.client.get_queue_item(number, depth=depth))
 
     @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
+    async def raw_build_stages(self, job: JobSpecifier, build_number: int) -> Sequence[GenMap]:
+        """Returns raw build stages for given build"""
+        job_path = self.job_path_from(job)
+        log().debug("fetch build stages for %s:%d", job_path, build_number)
+        return self.client.get_build_stages(job_path, build_number)
+
     async def build_stages(self, job: JobSpecifier, build_number: int) -> BuildStages:
         """Returns validated build stages info"""
-        return BuildStages.model_validate(
-            self.client.get_build_stages(self.job_path_from(job), build_number)
-        )
+        return BuildStages.model_validate(self.raw_build_stages(job, build_number))
 
     @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
     async def build_console_output(self, job: JobSpecifier, build_number: int) -> str:
