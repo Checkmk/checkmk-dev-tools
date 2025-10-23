@@ -85,7 +85,7 @@ class PedanticBaseModel(BaseModel):
         # Activate this in ordert to enforce a stricter pydantic validation which
         # raises on unknown attributes. Activate it in development only since it will
         # break runtimes when Jenkins API changes again.
-        #  extra = "forbid"
+        # extra = "forbid"
 
 
 class JobTreeElement(PedanticBaseModel):
@@ -850,6 +850,22 @@ class AugmentedJenkinsClient:
         """Returns validated build stages info"""
         return BuildStages.model_validate(
             self.client.get_build_stages(
+                (
+                    job
+                    if isinstance(job, str)
+                    else job.path
+                    if isinstance(job, Job)
+                    else "/".join(job)
+                ),
+                build_number,
+            )
+        )
+
+    @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
+    async def build_console_output(self, job: str | Sequence[str] | Job, build_number: int) -> str:
+        """Returns the build log for a given build"""
+        return str(
+            self.client.get_build_console_output(
                 (
                     job
                     if isinstance(job, str)
