@@ -175,7 +175,7 @@ def parse_args() -> Args:
         subparser.add_argument(
             "--total-download-timeout",
             type=int,
-            default=60,
+            default=120,
             help="Time in seconds a download for a single file may take before rising a TimeoutError",
         )
 
@@ -294,7 +294,7 @@ def download_artifacts(
     client: Jenkins,
     build: Build,
     out_dir: Path,
-    total_download_timeout: int = 60,
+    total_download_timeout: int = 120,
     no_remove_others: bool = False,
     no_raise: bool = False,
 ) -> tuple[Sequence[str | None], Sequence[str | None]]:
