@@ -290,7 +290,8 @@ class BuildNode(PedanticBaseModel):
     displayName: str
 
     # BuildNode instances never have a _class, but we want to derive PedanticBaseModel
-    type: Literal["undefined"] = "undefined"
+    type: str = "BuildNode"
+
     _ignored_keys = {
         "offline",  # : bool
         "absoluteRemotePath",  # : None | str = None
@@ -331,6 +332,11 @@ class StageInfo(PedanticBaseModel):
     begin: int
     duration: int
     execNode: str
+
+    # StageInfo instances not always have a _class, but we want to derive PedanticBaseModel
+    type: str = "StageInfo"
+
+    # not the same as JobResult unfortunately
     status: Literal["FAILED", "IN_PROGRESS", "SUCCESS", "ABORTED", "NOT_EXECUTED", "UNSTABLE"]
 
     @model_validator(mode="before")
@@ -356,6 +362,10 @@ class BuildStages(PedanticBaseModel):
     id: str
     name: str
     status: str
+
+    # StageInfo instances not always have a _class, but we want to derive PedanticBaseModel
+    type: Literal["undefined"] = "undefined"
+
     # ignore: pauseDurationMillis, queueDurationMillis, _links
 
     @model_validator(mode="before")
@@ -382,6 +392,7 @@ class Change(PedanticBaseModel):
     author_email: str
     url: str
     affected: Sequence[str] = []
+    type: str = "Change"
 
     def markdown(self) -> str:
         """Returns a nice looking rich.Text representation"""
