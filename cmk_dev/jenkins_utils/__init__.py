@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any, ClassVar, Literal, Union, cast
 
 from jenkins import Jenkins, JenkinsException
-from pydantic import BaseModel, Json, model_validator
+from pydantic import BaseModel, ConfigDict, Json, model_validator
 from trickkiste.misc import async_retry, asyncify, compact_dict, date_str, dur_str, split_params
 
 from cmk_dev.utils import Fatal
@@ -56,6 +56,11 @@ def log() -> logging.Logger:
 class PedanticBaseModel(BaseModel):
     """Even more pedantic.."""
 
+    # Set to "forbid" in ordert to enforce a stricter pydantic validation which
+    # raises on unknown attributes. Activate it in development only since it will
+    # break runtimes when Jenkins API changes again.
+    model_config = ConfigDict(extra="ignore")
+
     _ignored_keys: ClassVar[Set[str]] = set()
     type: str
 
@@ -78,14 +83,6 @@ class PedanticBaseModel(BaseModel):
             # and turn "_class" into "type" if availabe (taking only the last part)
             **({"type": obj["_class"].rsplit(".", 1)[-1]} if "_class" in obj else {}),
         }
-
-    class Config:
-        """Mandatory docstring"""
-
-        # Activate this in ordert to enforce a stricter pydantic validation which
-        # raises on unknown attributes. Activate it in development only since it will
-        # break runtimes when Jenkins API changes again.
-        # extra = "forbid"
 
 
 class JobTreeElement(PedanticBaseModel):
