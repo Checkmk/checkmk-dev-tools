@@ -1280,7 +1280,10 @@ def main() -> None:
             # let's not brake this.
             logging.getLogger("trickkiste").setLevel(args.log_level.split("_")[-1])
 
-        log().debug("Parsed args: %s", args)
+        log().debug("Parsed args: %s", ", ".join(f"{k}={v}" for k, v in args.__dict__.items()))
+        log().debug(
+            "checkmk-dev-tools version: %s from %s", __version__, Path(__file__).parent
+        )
         if asyncio.iscoroutinefunction(args.func):
             asyncio.run(args.func(args))
         else:
