@@ -1201,7 +1201,7 @@ async def await_build(
         while True:
             if not current_build_info.completed:
                 log().debug("build %s in progress", build_number)
-                time.sleep(next_check_sleep)
+                await asyncio.sleep(next_check_sleep)
                 current_build_info = await jenkins_client.build_info(job_full_path, build_number)
                 continue
             break
