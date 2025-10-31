@@ -122,6 +122,12 @@ def parse_args() -> Args:
             action="store_true",
             help="Use colored and linebreaking rich logger over default python logger",
         )
+        subparser.add_argument(
+            "--ignore-build-queue",
+            dest="ignore_build_queue",
+            action="store_true",
+            help="Do not query jenkins build queue for matching job runs",
+        )
 
     def apply_request_args(subparser: ArgumentParser) -> None:
         subparser.add_argument(
@@ -1068,16 +1074,17 @@ async def identify_matching_build(
 
         log().debug(f"Checked {builds} to find a match, but did not find anything valid")
 
-        log().debug("Checking queued items with the Jenkins API")
-        if matching_item := await find_matching_queue_item(
-            jenkins_client=jenkins_client,
-            job=job,
-            params=params,
-            path_hashes=path_hashes,
-            next_check_sleep=next_check_sleep,
-        ):
-            log().debug("Found queued item %s", matching_item)
-            return await jenkins_client.build_info(job.path, matching_item)
+        if not args.ignore_build_queue:
+            log().debug("Checking queued items with the Jenkins API")
+            if matching_item := await find_matching_queue_item(
+                jenkins_client=jenkins_client,
+                job=job,
+                params=params,
+                path_hashes=path_hashes,
+                next_check_sleep=next_check_sleep,
+            ):
+                log().debug("Found queued item %s", matching_item)
+                return await jenkins_client.build_info(job.path, matching_item)
 
         # exit here with no matching result if
         # - the InfluxDB connection was a success
@@ -1102,14 +1109,15 @@ async def identify_matching_build(
             log().info("found matching unfinished build: %s (%s)", build.number, build.url)
             return build
 
-    if matching_item := await find_matching_queue_item(
-        jenkins_client=jenkins_client,
-        job=job,
-        params=params,
-        path_hashes=path_hashes,
-        next_check_sleep=next_check_sleep,
-    ):
-        return await jenkins_client.build_info(job.path, matching_item)
+    if args and not args.ignore_build_queue:
+        if matching_item := await find_matching_queue_item(
+            jenkins_client=jenkins_client,
+            job=job,
+            params=params,
+            path_hashes=path_hashes,
+            next_check_sleep=next_check_sleep,
+        ):
+            return await jenkins_client.build_info(job.path, matching_item)
 
     return None
 
