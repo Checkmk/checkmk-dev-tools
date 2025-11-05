@@ -625,6 +625,8 @@ async def find_matching_queue_item(
     next_check_sleep: int = 30,
 ) -> None | BuildId:
     """Looks for a queued build matching job and parameters and returns the QueueId"""
+    log().debug("Checking queued items with the Jenkins API")
+
     for simple_queue_item in await jenkins_client.queue_info():
         queue_item = await jenkins_client.queue_item(simple_queue_item.id, depth=2)
 
@@ -671,6 +673,8 @@ async def find_matching_queue_item(
             queue_id=queue_item.id,
             next_check_sleep=next_check_sleep,
         )
+
+    log().debug("Found no matching queued item")
 
     return None
 
@@ -1075,7 +1079,6 @@ async def identify_matching_build(
         log().debug(f"Checked {builds} to find a match, but did not find anything valid")
 
         if not args.ignore_build_queue:
-            log().debug("Checking queued items with the Jenkins API")
             if matching_item := await find_matching_queue_item(
                 jenkins_client=jenkins_client,
                 job=job,
@@ -1083,7 +1086,7 @@ async def identify_matching_build(
                 path_hashes=path_hashes,
                 next_check_sleep=next_check_sleep,
             ):
-                log().debug("Found queued item %s", matching_item)
+                log().debug("Found matching queued item %s", matching_item)
                 return await jenkins_client.build_info(job.path, matching_item)
 
         # exit here with no matching result if
@@ -1117,6 +1120,7 @@ async def identify_matching_build(
             path_hashes=path_hashes,
             next_check_sleep=next_check_sleep,
         ):
+            log().debug("Found matching queued item %s", matching_item)
             return await jenkins_client.build_info(job.path, matching_item)
 
     return None
