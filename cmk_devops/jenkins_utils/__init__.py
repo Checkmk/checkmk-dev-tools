@@ -144,7 +144,9 @@ class Build(SimpleBuild):
     """Models a Jenkins job build"""
 
     timestamp: int  # easier to handle than NaiveDatetime
-    duration: int  # easier to handle than timedelta
+    duration_total_sec: int
+    duration_queue_sec: int
+    duration_execution_sec: int
     result: None | JobResult
     path_hashes: Mapping[str, str]
     artifacts: Sequence[str]
@@ -161,6 +163,7 @@ class Build(SimpleBuild):
         "culprits",
         "description",
         "displayName",
+        "duration",
         "estimatedDuration",
         "executor",
         "fullDisplayName",
@@ -208,12 +211,52 @@ class Build(SimpleBuild):
         )
         path_hashes = split_params(cast(str, parameters.get("DEPENDENCY_PATH_HASHES", "")))
 
+        duration_queue_sec = (
+            injected
+            if (injected := obj.get("duration_queue_sec")) is not None
+            else cast(
+                int,
+                params_from(
+                    build_info=obj, action_name="TimeInQueueAction", item_name="waitingTimeMillis"
+                ),
+            )
+            // 1000
+        )
+        duration_execution_sec = (
+            injected
+            if (injected := obj.get("duration_execution_sec")) is not None
+            else cast(
+                int,
+                params_from(
+                    build_info=obj, action_name="TimeInQueueAction", item_name="executingTimeMillis"
+                ),
+            )
+            // 1000
+        )
+        duration_total_sec = (
+            injected
+            if (injected := obj.get("duration_total_sec")) is not None
+            else cast(
+                int,
+                params_from(
+                    build_info=obj,
+                    action_name="TimeInQueueAction",
+                    item_name="buildingDurationMillis",
+                ),
+            )
+            // 1000
+        )
+
         return {
             **obj,
-            "timestamp": obj["timestamp"] // 1000
-            if obj["timestamp"] > 9_999_999_999  # noqa: PLR2004  - this constant is self explanatory
-            else obj["timestamp"],
-            "duration": obj["duration"] // 1000,
+            "timestamp": (
+                obj["timestamp"] // 1000
+                if obj["timestamp"] > 9_999_999_999  # noqa: PLR2004  - this constant is self explanatory
+                else obj["timestamp"]
+            ),
+            "duration_total_sec": duration_total_sec,
+            "duration_queue_sec": duration_queue_sec,
+            "duration_execution_sec": duration_execution_sec,
             "parameters": parameters,
             "causes": causes,
             "path_hashes": path_hashes,
@@ -230,7 +273,8 @@ class Build(SimpleBuild):
         return (
             f"Build(nr={self.number}, {'completed' if self.completed else 'running'}/{self.result}"
             f", started: {date_str(self.timestamp)}"
-            f", took {dur_str(self.duration, fixed=True)}"
+            f", took {dur_str(self.duration_total_sec, fixed=True)}"
+            f", waiting {dur_str(self.duration_wait_total_sec)}"
             f", params={{{compact_dict(self.parameters)}}}"
             f", hashes={{{compact_dict(self.path_hashes)}}})"
         )
@@ -241,6 +285,10 @@ class Build(SimpleBuild):
         # see core/src/main/java/hudson/model/Run.java#L543
         # @ https://github.com/jenkinsci/jenkins
         return not self.inProgress
+
+    @property
+    def duration_wait_total_sec(self) -> int:
+        return self.duration_total_sec - self.duration_execution_sec
 
 
 class SimpleJob(JobTreeElement):
