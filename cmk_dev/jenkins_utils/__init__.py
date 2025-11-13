@@ -116,6 +116,30 @@ class SimpleBuild(PedanticBaseModel):
     _ignored_keys = {"executor", "name"}
 
 
+class Cause(PedanticBaseModel):
+    """Cause
+    actually type is one of
+        'Cause$UpstreamCause' =>            'Started by upstream project..'
+        'BuildUpstreamCause'  =>            'Started by upstream project..'
+        'TimerTrigger$TimerTriggerCause' => 'Started by timer'
+        'Cause$UserIdCause' =>              'Started by user <user>'
+        'ReplayCause' =>                    'Replayed #<id>'
+        'RebuildCause' =>                   'Rebuilds build <id>'
+        'SCMTrigger$SCMTriggerCause' =>     'Started by an SCM change'
+        'GerritCause' =>                    'Triggered by Gerrit'
+        'GerritUserCause' =>                'Retriggered by user <user>'
+    but we don't need to be pydantic here..
+    """
+
+    type: str
+    shortDescription: str
+    upstreamProject: None | str = None
+    upstreamBuild: None | int = None
+    userId: None | str = None
+
+    _ignored_keys = {"upstreamUrl", "userName"}
+
+
 class Build(SimpleBuild):
     """Models a Jenkins job build"""
 
@@ -126,6 +150,7 @@ class Build(SimpleBuild):
     artifacts: Sequence[str]
     inProgress: bool
     parameters: Mapping[str, str | bool]
+    causes: Sequence[Cause]
     nextBuild: None | SimpleBuild = None
     type: str
 
@@ -168,6 +193,13 @@ class Build(SimpleBuild):
             this_parameters = params_from(
                 build_info=obj, action_name="ParametersAction", item_name="parameters"
             )
+        causes = obj.get("causes") or [
+            Cause.model_validate(cause)
+            for cause in cast(
+                Sequence[Mapping[str, str]],
+                params_from(build_info=obj, action_name="CauseAction", item_name="causes"),
+            )
+        ]
         path_hashes = split_params(cast(str, this_parameters.get("DEPENDENCY_PATH_HASHES", "")))
 
         return {
@@ -175,6 +207,7 @@ class Build(SimpleBuild):
             "timestamp": obj["timestamp"] // 1000,
             "duration": obj["duration"] // 1000,
             "parameters": this_parameters,
+            "causes": causes,
             "path_hashes": path_hashes,
             "artifacts": [
                 cast(Mapping[str, str], a)["relativePath"]
@@ -427,7 +460,7 @@ def params_from(build_info: GenMap, action_name: str, item_name: str) -> GenMap:
                     str(p["name"]): p["value"]
                     for p in map(lambda a: cast(GenMap, a), cast(GenMapArray, action[item_name]))
                 }
-            if action_name == "CustomBuildPropertiesAction":
+            else:
                 return cast(GenMap, action[item_name])
     return {}
 

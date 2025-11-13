@@ -1058,6 +1058,7 @@ async def identify_matching_build(
                 result=this_result,
                 path_hashes={},
                 artifacts=[],
+                causes=[],
                 inProgress=True if build_result == "RUNNING" else False,
                 parameters={
                     k: v if v is not None else ""
