@@ -1076,8 +1076,6 @@ async def identify_matching_build(
                 log().info("found matching (may finished) build: %s (%s)", build.number, build.url)
                 return build
 
-        log().debug(f"Checked {builds} to find a match, but did not find anything valid")
-
         if not args.ignore_build_queue:
             if matching_item := await find_matching_queue_item(
                 jenkins_client=jenkins_client,
