@@ -814,7 +814,7 @@ class AugmentedJenkinsClient:
     @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
     async def raw_build_info(self, job_full_name: str, build_number: int) -> GenMap:
         """Returns raw Jenkins job info for @job_full_name"""
-        log().debug("fetch build log for %s:%d", job_full_name, build_number)
+        log().debug("fetch build info for %s:%d", job_full_name, build_number)
         return self.client.get_build_info(job_full_name, build_number)
 
     async def build_info(self, job_full_name: str | Sequence[str], build_number: int) -> Build:
