@@ -657,26 +657,17 @@ class AugmentedJenkinsClient:
 
     def __enter__(self) -> "AugmentedJenkinsClient":
         """Checks connection by validating sync_whoami()"""
-        return self._check_connection()
+        return self
 
     def __exit__(self, *args: object) -> None:
         pass
 
     async def __aenter__(self) -> "AugmentedJenkinsClient":
         """Checks connection by validating sync_whoami()"""
-        return self._check_connection()
+        return self
 
     async def __aexit__(self, *args: object) -> None:
         pass
-
-    def _check_connection(self) -> "AugmentedJenkinsClient":
-        whoami = (self.sync_whoami())["id"]
-        username = self.client.auth and self.client.auth.username.decode() or ""
-        if not whoami == username:
-            log().warning(
-                "client.get_whoami()=%s does not match jenkins_config['user']=%s", whoami, username
-            )
-        return self
 
     @asyncify
     def whoami(self) -> Mapping[str, str]:
