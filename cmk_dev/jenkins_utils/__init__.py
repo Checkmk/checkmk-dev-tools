@@ -29,6 +29,7 @@ from typing import Any, ClassVar, Literal, Union, cast
 
 from jenkins import Jenkins, JenkinsException
 from pydantic import BaseModel, Json, model_validator
+from retry import retry
 from trickkiste.misc import async_retry, compact_dict, date_str, dur_str, split_params
 
 from cmk_dev.utils import Fatal
@@ -678,6 +679,7 @@ class AugmentedJenkinsClient:
             )
         return self
 
+    @retry(tries=3, delay=1, logger=log())
     def sync_whoami(self) -> Mapping[str, str]:
         """Synchronous wrapper for whoami"""
         # First API call gives us
