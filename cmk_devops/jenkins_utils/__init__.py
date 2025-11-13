@@ -149,7 +149,7 @@ class Build(SimpleBuild):
     result: None | JobResult
     path_hashes: Mapping[str, str]
     artifacts: Sequence[str]
-    inProgress: bool
+    inProgress: None | bool = None
     parameters: Mapping[str, str | bool]
     causes: Sequence[Cause]
     nextBuild: None | SimpleBuild = None
@@ -158,6 +158,8 @@ class Build(SimpleBuild):
     _ignored_keys = {
         "actions",
         "building",
+        "builtOn",
+        "changeSet",
         "changeSets",
         "culprits",
         "description",
@@ -357,6 +359,7 @@ class BuildNode(PedanticBaseModel):
         "absoluteRemotePath",  # : None | str = None
         "actions",  # : None | Sequence[dict[str, Any]] = None
         "assignedLabels",  # : None | Sequence[dict[str, Any]] = None
+        "containers",
         "description",  # : None | str = None
         "executors",  # : None | Sequence[dict[str, Any]] = None
         "iconClassName",  # : None | str = None
@@ -371,6 +374,7 @@ class BuildNode(PedanticBaseModel):
         "offlineCause",  # : None | dict[str, Any] = None
         "offlineCauseReason",  # : None | str = None
         "oneOffExecutors",  # : None | Sequence[dict[str, Any]] = None
+        "podEvents",
         "temporarilyOffline",  # : None | bool = None
     }
 
