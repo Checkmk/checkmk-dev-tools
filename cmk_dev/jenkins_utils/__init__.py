@@ -29,7 +29,7 @@ from typing import Any, ClassVar, Literal, Union, cast
 
 from jenkins import Jenkins, JenkinsException
 from pydantic import BaseModel, Json, model_validator
-from trickkiste.misc import async_retry, asyncify, compact_dict, date_str, dur_str, split_params
+from trickkiste.misc import async_retry, compact_dict, date_str, dur_str, split_params
 
 from cmk_dev.utils import Fatal
 
@@ -677,11 +677,6 @@ class AugmentedJenkinsClient:
                 "client.get_whoami()=%s does not match jenkins_config['user']=%s", whoami, username
             )
         return self
-
-    @asyncify
-    def whoami(self) -> Mapping[str, str]:
-        """Async wrapper for whoami"""
-        return self.sync_whoami()
 
     def sync_whoami(self) -> Mapping[str, str]:
         """Synchronous wrapper for whoami"""
