@@ -145,6 +145,7 @@ class Build(SimpleBuild):
 
     timestamp: int  # easier to handle than NaiveDatetime
     duration: int  # easier to handle than timedelta
+    time_in_queue_sec: int
     result: None | JobResult
     path_hashes: Mapping[str, str]
     artifacts: Sequence[str]
@@ -208,12 +209,24 @@ class Build(SimpleBuild):
         )
         path_hashes = split_params(cast(str, parameters.get("DEPENDENCY_PATH_HASHES", "")))
 
+        time_in_queue_ms = (
+            (queue_time_inj * 1000)
+            if (queue_time_inj := obj.get("time_in_queue_sec")) is not None
+            else cast(
+                int,
+                params_from(
+                    build_info=obj, action_name="TimeInQueueAction", item_name="waitingTimeMillis"
+                ),
+            )
+        )
+
         return {
             **obj,
             "timestamp": obj["timestamp"] // 1000
             if obj["timestamp"] > 9_999_999_999  # noqa: PLR2004  - this constant is self explanatory
             else obj["timestamp"],
             "duration": obj["duration"] // 1000,
+            "time_in_queue_sec": time_in_queue_ms // 1000,
             "parameters": parameters,
             "causes": causes,
             "path_hashes": path_hashes,
