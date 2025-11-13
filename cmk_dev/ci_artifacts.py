@@ -32,7 +32,7 @@ from jenkins import Jenkins
 from trickkiste.logging_helper import apply_common_logging_cli_args, setup_logging
 from trickkiste.misc import compact_dict, cwd, md5from, split_params
 
-from .jenkins_utils import (
+from cmk_dev.jenkins_utils import (
     AugmentedJenkinsClient,
     Build,
     BuildId,
@@ -46,8 +46,8 @@ from .jenkins_utils import (
     apply_common_jenkins_cli_args,
     extract_credentials,
 )
-from .utils import Fatal
-from .version import __version__
+from cmk_dev.utils import Fatal
+from cmk_dev.version import __version__
 
 # Todo: warn about missing parameters
 # Todo: default to `$REPO/package_download` rather than `out`
@@ -122,12 +122,6 @@ def parse_args() -> Args:
             action="store_true",
             help="Do not raise an Exception in case of errors",
         )
-        subparser.add_argument(
-            "--ignore-build-queue",
-            dest="ignore_build_queue",
-            action="store_true",
-            help="Do not query jenkins build queue for matching job runs",
-        )
 
     def apply_request_args(subparser: ArgumentParser) -> None:
         subparser.add_argument(
@@ -158,6 +152,12 @@ def parse_args() -> Args:
                 "Provide a string (currently only 'today') which specifies the max age of a"
                 " build to be considered valid."
             ),
+        )
+        subparser.add_argument(
+            "--ignore-build-queue",
+            dest="ignore_build_queue",
+            action="store_true",
+            help="Do not query jenkins build queue for matching job runs",
         )
         subparser.add_argument(
             "-f",
@@ -1281,21 +1281,20 @@ def main() -> None:
         else:
             # for some reasons terminal type and properties are not recognized correctly by rich,
             # so 'temporarily' we force width and color
+            # dump terminals (like in CI) default to 80 columns
             if "CI" in os.environ:
                 os.environ.setdefault("FORCE_COLOR", "true")
-                os.environ.setdefault("COLUMNS", "200")
+                os.environ.setdefault("COLUMNS", "500")
 
             setup_logging(
                 logger=log(),
                 level=args.log_level,
-                show_name=False,
+                show_name=True,
                 show_funcname=False,
             )
 
         log().debug("Parsed args: %s", ", ".join(f"{k}={v}" for k, v in args.__dict__.items()))
-        log().debug(
-            "checkmk-dev-tools version: %s from %s", __version__, Path(__file__).parent
-        )
+        log().debug("checkmk-dev-tools version: %s from %s", __version__, Path(__file__).parent)
         if asyncio.iscoroutinefunction(args.func):
             asyncio.run(args.func(args))
         else:

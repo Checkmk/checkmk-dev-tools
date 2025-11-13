@@ -110,7 +110,7 @@ def activity_from_fs(start_dir: Path) -> None:
                     mtime = datetime.fromtimestamp(
                         (filepath := directory / filename).stat().st_mtime
                     )
-                except FileNotFoundError:
+                except (FileNotFoundError, OSError):
                     continue
 
                 if not year_min <= mtime.year <= year_max:

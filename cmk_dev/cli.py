@@ -20,8 +20,7 @@ import cmk_dev.cpumon
 
 # import cmk_dev.procmon
 import cmk_dev.pycinfo
-
-from .version import __version__
+from cmk_dev import __version__
 
 
 def parse_args(argv: Union[Sequence[str], None] = None) -> Args:
