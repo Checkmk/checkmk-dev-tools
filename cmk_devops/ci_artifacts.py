@@ -1056,6 +1056,7 @@ async def identify_matching_build(
                 number=build_number,
                 timestamp=this_timestamp,
                 duration=this_duration,
+                time_in_queue_sec=0,
                 result=this_result,
                 path_hashes={},
                 artifacts=[],
