@@ -906,6 +906,13 @@ class AugmentedJenkinsClient:
         return Job.model_validate(await self.raw_job_info(job))
 
     @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
+    async def raw_run_info(self, job: JobSpecifier) -> GenMap:
+        job_path = self.job_path_from(job)
+        url = f"{'/job/'.join((self.client.server, *(job_path.split('/'))))}/wfapi/runs"
+        log().debug("fetch run information for %s", job_path)
+        return cast(GenMap, self.client._session.get(url).json())
+
+    @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
     async def raw_build_info(self, job: JobSpecifier, build_number: int) -> GenMap:
         """Returns raw Jenkins job info for @job"""
         job_path = self.job_path_from(job)
@@ -980,19 +987,14 @@ class AugmentedJenkinsClient:
         """Async validating wrapper for Jenkins.get_node_info()"""
         return BuildNode.model_validate(self.client.get_node_info(name))
 
-    async def stages(self, job: str | Sequence[str] | Job) -> Mapping[int, Sequence[StageInfo]]:
+    async def stages(self, job: JobSpecifier) -> Mapping[int, Sequence[StageInfo]]:
         """Fetch stage information about recently executed builds"""
-        ## pylint: disable=protected-access
-        job_info = (
-            job
-            if isinstance(job, Job)
-            else await self.job_info(job if isinstance(job, str) else "/".join(job))
-        )
-        log().debug("fetch stage information for %s", job_info.path)
-        run_info = self.client._session.get(f"{job_info.url}/wfapi/runs").json()
         return {
-            int(run["id"]): [StageInfo.model_validate(stage) for stage in run["stages"]]
-            for run in run_info
+            int(run["id"]): [  # type: ignore[index]
+                StageInfo.model_validate(stage)
+                for stage in run["stages"]  # type: ignore[index]
+            ]
+            for run in await self.raw_run_info(job)
         }
 
 
