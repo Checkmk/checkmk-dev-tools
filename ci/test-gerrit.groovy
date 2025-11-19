@@ -47,20 +47,10 @@ def main() {
                     set -o pipefail
                     poetry --version
 
-                    poetry run activity-from-fs --help
                     poetry run binreplace --help
-                    poetry run check-rpath --help
                     poetry run ci-artifacts --help
-                    poetry run cmk-dev --help
-                    poetry run cpumon --help
                     poetry run job-resource-usage --help
-                    poetry run last-access --help
                     poetry run lockable-resources --help
-
-                    # scripts without argparser or some other reason
-                    # poetry run decent-output --help
-                    # poetry run procmon --help
-                    # poetry run pycinfo --help
                 """);
             }
 
@@ -79,7 +69,7 @@ def main() {
                     dev/run-in-venv \
                         changelog2version \
                         --changelog_file changelog.md \
-                        --version_file cmk_dev/version.py \
+                        --version_file cmk_devops/version.py \
                         --version_file_type py \
                         --additional_version_info="-rc${env.GERRIT_PATCHSET_NUMBER}.dev${env.GERRIT_CHANGE_NUMBER}" \
                         --print \
@@ -139,8 +129,8 @@ def main() {
                     rm -rf dist/*
                     poetry build
                     poetry run twine check dist/*
-                    python3 -m pip uninstall -y checkmk_dev_tools
-                    python3 -m pip install --pre --user dist/checkmk_dev_tools-*-py3-none-any.whl
+                    python3 -m pip uninstall -y cmk-devops-tools
+                    python3 -m pip install --pre --user dist/cmk_devops_tools-*-py3-none-any.whl
                 """);
             }
 
@@ -161,7 +151,7 @@ def main() {
             show_duration("archiveArtifacts") {
                 archiveArtifacts(
                     allowEmptyArchive: true,
-                    artifacts: "dist/checkmk_dev_tools-*, changelog.md",
+                    artifacts: "dist/cmk-devops-tools-*, changelog.md",
                     fingerprint: true,
                 );
             }

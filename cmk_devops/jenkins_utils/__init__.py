@@ -31,7 +31,7 @@ from jenkins import Jenkins, JenkinsException
 from pydantic import BaseModel, ConfigDict, Json, model_validator
 from trickkiste.misc import async_retry, asyncify, compact_dict, date_str, dur_str, split_params
 
-from cmk_dev.utils import Fatal
+from cmk_devops.utils import Fatal
 
 GenMapVal = Union[None, bool, str, float, int, "GenMapArray", "GenMap"]
 GenMapArray = Sequence[GenMapVal]

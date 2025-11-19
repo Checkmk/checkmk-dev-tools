@@ -32,9 +32,7 @@ repos:
             entry: poetry
             args: ["run", "mypy", "--config-file", "pyproject.toml"]
             types: [file, python]
-            exclude: (?x)^(
-                \.venv|
-                cmk_dev/procmon\.py)$
+            exclude: (?x)^(\.venv)$
           - id: check-yaml-linting
             name: Check YAML Linting
             entry: dev/check-yaml-linting
