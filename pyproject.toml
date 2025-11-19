@@ -1,27 +1,26 @@
 [tool.poetry]
-name = "checkmk-dev-tools"
+name = "cmk-devops-tools"
 version = "0.0.0" # will-be-updated-automatically
 description = "Checkmk DevOps tools"
 authors = [
-    "Frans Fürst <frans.fuerst@checkmk.com>",
     "Jonas Scharpf <jonas.scharpf@checkmk.com>",
     "Niko Wenselowski <niko.wenselowski@checkmk.com>",
     "Timotheus Bachinger <timotheus.bachinger@checkmk.com>",
 ]
 readme = "README.md"
-packages = [{ include = "cmk_dev/**/*.py" }]
-exclude = ["cmk_dev/out"]
+packages = [{ include = "cmk_devops/**/*.py" }]
+exclude = ["cmk_devops/out"]
 
 [tool.poetry.urls]
-Repository = "https://github.com/Checkmk/checkmk-dev-tools"
-Changelog = "https://github.com/Checkmk/checkmk-dev-tools/blob/CHANGE_ME_I_AM_A_CHANGELOG/changelog.md"
+Repository = "https://github.com/Checkmk/cmk-devops-tools"
+Changelog = "https://github.com/Checkmk/cmk-devops-tools/blob/CHANGE_ME_I_AM_A_CHANGELOG/changelog.md"
 
 [tool.poetry.scripts]
-binreplace = 'cmk_dev.binreplace:main'
-ci-artifacts = 'cmk_dev.ci_artifacts:main'
-job-resource-usage = 'cmk_dev.job_resource_usage:main'
-last-access = 'cmk_dev.last_access:main'
-lockable-resources = 'cmk_dev.lockable_resources:main'
+binreplace = 'cmk_devops.binreplace:main'
+ci-artifacts = 'cmk_devops.ci_artifacts:main'
+job-resource-usage = 'cmk_devops.job_resource_usage:main'
+last-access = 'cmk_devops.last_access:main'
+lockable-resources = 'cmk_devops.lockable_resources:main'
 
 [tool.poetry.dependencies]
 python = "^3.10.4"         # currently lowest supported Python version (CI Build Nodes)
@@ -51,7 +50,7 @@ pre-commit = "*"
 [tool.poetry-dynamic-versioning]
 enable = true
 format-jinja-imports = [{ module = "subprocess", item = "check_output" }]
-format-jinja = """{{ check_output(["python3", "-c", "from pathlib import Path; exec(Path('cmk_dev/version.py').read_text()); print(__version__)"]).decode().strip() }}"""
+format-jinja = """{{ check_output(["python3", "-c", "from pathlib import Path; exec(Path('cmk_devops/version.py').read_text()); print(__version__)"]).decode().strip() }}"""
 # format-jinja = "{{ env.get('PROJECT_VERSION') }}"
 
 [build-system]
@@ -85,7 +84,7 @@ ignore = [
 # "filename" = ["E123"]
 
 [tool.mypy]
-python_version = "3.10.4"
+python_version = "3.10"
 strict = "True"
 disallow_untyped_defs = "True"
 disallow_any_unimported = "True"

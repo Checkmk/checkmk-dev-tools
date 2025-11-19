@@ -9,7 +9,7 @@ from unittest import mock
 
 import pytest
 
-from cmk_dev.jenkins_utils import extract_credentials, filter_by_prefix
+from cmk_devops.jenkins_utils import extract_credentials, filter_by_prefix
 
 CI_ARTIFACTS_COMMAND = "ci-artifacts"
 LOG_COMMAND = ["--log-level", "debug"]
