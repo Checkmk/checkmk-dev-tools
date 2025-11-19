@@ -13,5 +13,5 @@ idea
 
 # automatically updated by snippets2changelog and changelog2version
 changelog.md
-cmk_dev/version.py
+cmk_devops/version.py
 version.json

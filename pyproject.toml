@@ -1,50 +1,36 @@
 [tool.poetry]
-name = "checkmk-dev-tools"
+name = "cmk-devops-tools"
 version = "0.0.0" # will-be-updated-automatically
 description = "Checkmk DevOps tools"
 authors = [
-    "Frans Fürst <frans.fuerst@checkmk.com>",
     "Jonas Scharpf <jonas.scharpf@checkmk.com>",
     "Niko Wenselowski <niko.wenselowski@checkmk.com>",
     "Timotheus Bachinger <timotheus.bachinger@checkmk.com>",
 ]
 readme = "README.md"
-packages = [{ include = "cmk_dev/**/*.py" }]
-exclude = ["cmk_dev/out"]
+packages = [{ include = "cmk_devops/**/*.py" }]
+exclude = ["cmk_devops/out"]
 
 [tool.poetry.urls]
-Repository = "https://github.com/Checkmk/checkmk-dev-tools"
-Changelog = "https://github.com/Checkmk/checkmk-dev-tools/blob/CHANGE_ME_I_AM_A_CHANGELOG/changelog.md"
+Repository = "https://github.com/Checkmk/cmk-devops-tools"
+Changelog = "https://github.com/Checkmk/cmk-devops-tools/blob/CHANGE_ME_I_AM_A_CHANGELOG/changelog.md"
 
 [tool.poetry.scripts]
-activity-from-fs = 'cmk_dev.activity_from_fs:main'
-binreplace = 'cmk_dev.binreplace:main'
-check-rpath = 'cmk_dev.check_rpath:main'
-ci-artifacts = 'cmk_dev.ci_artifacts:main'
-cmk-dev = 'cmk_dev.cli:main'
-cpumon = 'cmk_dev.cpumon:main'
-decent-output = 'cmk_dev.decent_output:main'
-job-resource-usage = 'cmk_dev.job_resource_usage:main'
-last-access = 'cmk_dev.last_access:main'
-# not-picked = 'cmk_dev.not_picked:main'
-procmon = 'cmk_dev.procmon:main'
-pycinfo = 'cmk_dev.pycinfo:main'
-lockable-resources = 'cmk_dev.lockable_resources:main'
+binreplace = 'cmk_devops.binreplace:main'
+ci-artifacts = 'cmk_devops.ci_artifacts:main'
+cmk-devops = 'cmk_devops.cli:main'
+job-resource-usage = 'cmk_devops.job_resource_usage:main'
+last-access = 'cmk_devops.last_access:main'
+lockable-resources = 'cmk_devops.lockable_resources:main'
 
 [tool.poetry.dependencies]
 python = "^3.10.4"         # currently lowest supported Python version (CI Build Nodes)
 python-jenkins = "~=1.8.3" # needed for ci-artifacts
-pydantic = "^2"            # jenkins_utils/*, docker_shaper/*
-rich = "*"                 # activity_from_fs.py, docker_shaper/*
+pydantic = "^2"            # ci_artifacs
+rich = "*"                 # ci_artifacs
 influxdb-client = "^1"     # ci_artifacs.py with InfluxDB
 
 trickkiste = "^0.3.4"
-# trickkiste  = {path = "../../_HOME/trickkiste", develop = true}
-
-# actual dependencies, but kept back
-[tool.poetry.group.dev.dependencies]
-aiofiles = "^23.2.1" # procmon.py
-ttrace = "^0.1.13"   # procmon.py
 
 # [tool.poetry.group.dev.dependencies]
 pytest = "*"
@@ -57,8 +43,6 @@ snippets2changelog = "^1.6.0"
 poetry-dynamic-versioning = "^1.3.0"
 types-pyyaml = "*"
 types-requests = "*"
-types-aiofiles = "*"
-types-retry = "*"
 pre-commit = "*"
 
 # https://github.com/mtkennerly/poetry-dynamic-versioning/tree/v1.3.0
@@ -67,7 +51,7 @@ pre-commit = "*"
 [tool.poetry-dynamic-versioning]
 enable = true
 format-jinja-imports = [{ module = "subprocess", item = "check_output" }]
-format-jinja = """{{ check_output(["python3", "-c", "from pathlib import Path; exec(Path('cmk_dev/version.py').read_text()); print(__version__)"]).decode().strip() }}"""
+format-jinja = """{{ check_output(["python3", "-c", "from pathlib import Path; exec(Path('cmk_devops/version.py').read_text()); print(__version__)"]).decode().strip() }}"""
 # format-jinja = "{{ env.get('PROJECT_VERSION') }}"
 
 [build-system]
@@ -101,7 +85,7 @@ ignore = [
 # "filename" = ["E123"]
 
 [tool.mypy]
-python_version = "3.10.4"
+python_version = "3.10"
 strict = "True"
 disallow_untyped_defs = "True"
 disallow_any_unimported = "True"
@@ -115,5 +99,4 @@ exclude = [
     # folders
     '\.venv',
     # files
-    'cmk_dev/procmon\.py',
 ]

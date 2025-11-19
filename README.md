@@ -13,7 +13,7 @@ scripts), the intended way to use it is via `pip` or inside a virtual environmen
 Install it locally using `pip`:
 
 ```sh
-[<PYTHON> -m] pip[3] install [--user] [--upgrade] checkmk-dev-tools
+[<PYTHON> -m] pip[3] install [--user] [--upgrade] cmk-devops-tools
 ```
 
 ## Contained tools
@@ -377,7 +377,7 @@ Update the version of the project in all required files by calling
 poetry run \
     changelog2version \
     --changelog_file changelog.md \
-    --version_file cmk_dev/version.py \
+    --version_file cmk_devops/version.py \
     --version_file_type py \
     --additional_version_info="-rc42+$(git rev-parse HEAD)" \
     --print \
@@ -408,6 +408,6 @@ git commit -m "cmk-dev-tools: bump version, update dependencies"
 pip install --no-cache-dir \
     -i https://test.pypi.org/simple/ \
     --extra-index-url https://pypi.org/simple \
-    checkmk-dev-tools==<VERSION_WITH_RC>
+    cmk-devops-tools==<VERSION_WITH_RC>
 ```
   - finally merge the changes and let Jenkins create the release tag and deployment
