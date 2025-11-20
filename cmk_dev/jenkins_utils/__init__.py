@@ -189,16 +189,23 @@ class Build(SimpleBuild):
         # since some Build attributes get extracted from the 'actions' attribute
         # for convenience reasons, it must be able to both take them from the constructor
         # or - if not available fall back to the 'actions' list
-        parameters = obj.get("parameters") or params_from(
-            build_info=obj, action_name="ParametersAction", item_name="parameters"
+        parameters = (
+            parameters_inj
+            if (parameters_inj := obj.get("parameters")) is not None
+            else params_from(build_info=obj, action_name="ParametersAction", item_name="parameters")
         )
-        causes = obj.get("causes") or [
-            Cause.model_validate(cause)
-            for cause in cast(
-                Sequence[Mapping[str, str]],
-                params_from(build_info=obj, action_name="CauseAction", item_name="causes"),
-            )
-        ]
+
+        causes = (
+            causes_inj
+            if (causes_inj := obj.get("causes")) is not None
+            else [
+                Cause.model_validate(cause)
+                for cause in cast(
+                    Sequence[Mapping[str, str]],
+                    params_from(build_info=obj, action_name="CauseAction", item_name="causes"),
+                )
+            ]
+        )
         path_hashes = split_params(cast(str, parameters.get("DEPENDENCY_PATH_HASHES", "")))
 
         return {
