@@ -39,6 +39,7 @@ GenMap = Mapping[str, GenMapVal]
 
 JobParamValue = Union[int, str, bool]
 JobParams = MutableMapping[str, JobParamValue]
+JobSpecifier = Union[str, Sequence[str], "Job"]
 
 QueueId = int
 BuildId = int
@@ -793,21 +794,23 @@ class AugmentedJenkinsClient:
             for element in recursive_traverse(sub_jobs, path):
                 yield element
 
-    async def build_time(self, job: str | Job, build_nr: None | int) -> None | int:
+    @staticmethod
+    def job_path_from(job: JobSpecifier) -> str:
+        return job if isinstance(job, str) else job.path if isinstance(job, Job) else "/".join(job)
+
+    async def build_time(self, job: JobSpecifier, build_nr: None | int) -> None | int:
         """Returns the buildtime timestamp in seconds"""
         if build_nr is None:
             return None
-        build_info = await self.raw_build_info(job if isinstance(job, str) else job.path, build_nr)
+        build_info = await self.raw_build_info(self.job_path_from(job), build_nr)
         return cast(int, build_info["timestamp"]) // 1000
 
-    async def change_sets(self, job: str | Job, build_nr: None | int) -> Iterable[Change]:
+    async def change_sets(self, job: JobSpecifier, build_nr: None | int) -> Iterable[Change]:
         """ "Returns the list of change sets of a given build"""
         if build_nr is None:
             return []
         try:
-            all_change_sets = (
-                await self.raw_build_info(job if isinstance(job, str) else job.path, build_nr)
-            )["changeSets"]
+            all_change_sets = (await self.raw_build_info(job, build_nr))["changeSets"]
         except JenkinsException as exc:
             log().error("Could not fetch change sets: %s", exc)
             return []
@@ -823,14 +826,10 @@ class AugmentedJenkinsClient:
         return [Change.model_validate(change) for change in git_change_sets]
 
     async def failing_transition_numbers(
-        self, job: str | Job | Sequence[str]
+        self, job: JobSpecifier
     ) -> tuple[None | int, None | int, None | int]:
         """Returns build numbers of the first failing job and it's predecessor"""
-        job_info = (
-            job
-            if isinstance(job, Job)
-            else await self.job_info(job if isinstance(job, str) else "/".join(job))
-        )
+        job_info = job if isinstance(job, Job) else await self.job_info(self.job_path_from(job))
         last_successful = job_info.lastSuccessfulBuild
         if job_info.lastCompletedBuild and job_info.lastCompletedBuild == last_successful:
             return last_successful.number, None, last_successful.number
@@ -854,33 +853,26 @@ class AugmentedJenkinsClient:
         return self.client.get_jobs()
 
     @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
-    async def raw_job_info(self, job_full_name: str) -> GenMap:
-        """Fetches Jenkins job info for @job_full_name"""
-        log().debug("fetch job info for %s", job_full_name)
-        return self.client.get_job_info(job_full_name)
+    async def raw_job_info(self, job: JobSpecifier) -> GenMap:
+        """Fetches Jenkins job info for @job"""
+        job_path = self.job_path_from(job)
+        log().debug("fetch job info for %s", job_path)
+        return self.client.get_job_info(job_path)
 
-    async def job_info(self, job_full_name: str | Sequence[str]) -> Job:
+    async def job_info(self, job: JobSpecifier) -> Job:
         """Fetches Jenkins job info for @job_full_name"""
-        return Job.model_validate(
-            await self.raw_job_info(
-                job_full_name if isinstance(job_full_name, str) else "/".join(job_full_name)
-            )
-        )
+        return Job.model_validate(await self.raw_job_info(job))
 
     @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
-    async def raw_build_info(self, job_full_name: str, build_number: int) -> GenMap:
-        """Returns raw Jenkins job info for @job_full_name"""
-        log().debug("fetch build info for %s:%d", job_full_name, build_number)
-        return self.client.get_build_info(job_full_name, build_number)
+    async def raw_build_info(self, job: JobSpecifier, build_number: int) -> GenMap:
+        """Returns raw Jenkins job info for @job"""
+        job_path = self.job_path_from(job)
+        log().debug("fetch build info for %s:%d", job_path, build_number)
+        return self.client.get_build_info(job_path, build_number)
 
-    async def build_info(self, job_full_name: str | Sequence[str], build_number: int) -> Build:
+    async def build_info(self, job: JobSpecifier, build_number: int) -> Build:
         """Fetches Jenkins build info for @job_full_name#@build_number"""
-        return Build.model_validate(
-            await self.raw_build_info(
-                job_full_name if isinstance(job_full_name, str) else "/".join(job_full_name),
-                build_number,
-            )
-        )
+        return Build.model_validate(await self.raw_build_info(job, build_number))
 
     @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
     async def queue_info(self) -> Sequence[QueueItem]:
@@ -893,36 +885,16 @@ class AugmentedJenkinsClient:
         return QueueItem.model_validate(self.client.get_queue_item(number, depth=depth))
 
     @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
-    async def build_stages(self, job: str | Sequence[str] | Job, build_number: int) -> BuildStages:
+    async def build_stages(self, job: JobSpecifier, build_number: int) -> BuildStages:
         """Returns validated build stages info"""
         return BuildStages.model_validate(
-            self.client.get_build_stages(
-                (
-                    job
-                    if isinstance(job, str)
-                    else job.path
-                    if isinstance(job, Job)
-                    else "/".join(job)
-                ),
-                build_number,
-            )
+            self.client.get_build_stages(self.job_path_from(job), build_number)
         )
 
     @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
-    async def build_console_output(self, job: str | Sequence[str] | Job, build_number: int) -> str:
+    async def build_console_output(self, job: JobSpecifier, build_number: int) -> str:
         """Returns the build log for a given build"""
-        return str(
-            self.client.get_build_console_output(
-                (
-                    job
-                    if isinstance(job, str)
-                    else job.path
-                    if isinstance(job, Job)
-                    else "/".join(job)
-                ),
-                build_number,
-            )
-        )
+        return str(self.client.get_build_console_output(self.job_path_from(job), build_number))
 
     @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
     async def fetch_jvm_ressource_stats(self) -> Mapping[str, int]:
