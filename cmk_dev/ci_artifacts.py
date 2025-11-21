@@ -378,6 +378,7 @@ def download_artifacts(
                     log().debug("download: %s", artifact)
                     reply.raise_for_status()
                     artifact_filename.parent.mkdir(parents=True, exist_ok=True)
+                    current_dl_duration = 0.0
                     with open(artifact_filename, "wb") as out_file:
                         for chunk in reply.iter_content(chunk_size=8192):
                             if (
