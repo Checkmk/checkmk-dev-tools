@@ -1210,7 +1210,7 @@ async def await_build(
 
         log().info("build finished with result=%s", current_build_info.result)
 
-    if all([check_result, current_build_info.result != "SUCCESS", not no_raise]):
+    if all([check_result, current_build_info.result != "SUCCESS"]):
         raise Fatal(
             "The build we started has "
             f"result={current_build_info.result} ({current_build_info.url})"
@@ -1312,7 +1312,8 @@ def main() -> None:
         print(
             json.dumps({"err": f"Fatal exception: {exc}"})
         )  # always return a valid JSON to the caller
-        raise SystemExit(-1) from exc
+        if not args.no_raise:
+            raise SystemExit(-1) from exc
 
 
 if __name__ == "__main__":
