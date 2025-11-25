@@ -17,34 +17,20 @@ Repository = "https://github.com/Checkmk/checkmk-dev-tools"
 Changelog = "https://github.com/Checkmk/checkmk-dev-tools/blob/CHANGE_ME_I_AM_A_CHANGELOG/changelog.md"
 
 [tool.poetry.scripts]
-activity-from-fs = 'cmk_dev.activity_from_fs:main'
 binreplace = 'cmk_dev.binreplace:main'
-check-rpath = 'cmk_dev.check_rpath:main'
 ci-artifacts = 'cmk_dev.ci_artifacts:main'
-cmk-dev = 'cmk_dev.cli:main'
-cpumon = 'cmk_dev.cpumon:main'
-decent-output = 'cmk_dev.decent_output:main'
 job-resource-usage = 'cmk_dev.job_resource_usage:main'
 last-access = 'cmk_dev.last_access:main'
-# not-picked = 'cmk_dev.not_picked:main'
-procmon = 'cmk_dev.procmon:main'
-pycinfo = 'cmk_dev.pycinfo:main'
 lockable-resources = 'cmk_dev.lockable_resources:main'
 
 [tool.poetry.dependencies]
 python = "^3.10.4"         # currently lowest supported Python version (CI Build Nodes)
 python-jenkins = "~=1.8.3" # needed for ci-artifacts
-pydantic = "^2"            # jenkins_utils/*, docker_shaper/*
-rich = "*"                 # activity_from_fs.py, docker_shaper/*
+pydantic = "^2"            # ci_artifacs
+rich = "*"                 # ci_artifacs
 influxdb-client = "^1"     # ci_artifacs.py with InfluxDB
 
 trickkiste = "^0.3.4"
-# trickkiste  = {path = "../../_HOME/trickkiste", develop = true}
-
-# actual dependencies, but kept back
-[tool.poetry.group.dev.dependencies]
-aiofiles = "^23.2.1" # procmon.py
-ttrace = "^0.1.13"   # procmon.py
 
 # [tool.poetry.group.dev.dependencies]
 pytest = "*"
@@ -57,8 +43,6 @@ snippets2changelog = "^1.6.0"
 poetry-dynamic-versioning = "^1.3.0"
 types-pyyaml = "*"
 types-requests = "*"
-types-aiofiles = "*"
-types-retry = "*"
 pre-commit = "*"
 
 # https://github.com/mtkennerly/poetry-dynamic-versioning/tree/v1.3.0
@@ -115,5 +99,4 @@ exclude = [
     # folders
     '\.venv',
     # files
-    'cmk_dev/procmon\.py',
 ]

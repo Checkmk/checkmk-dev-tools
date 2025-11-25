@@ -47,20 +47,10 @@ def main() {
                     set -o pipefail
                     poetry --version
 
-                    poetry run activity-from-fs --help
                     poetry run binreplace --help
-                    poetry run check-rpath --help
                     poetry run ci-artifacts --help
-                    poetry run cmk-dev --help
-                    poetry run cpumon --help
                     poetry run job-resource-usage --help
-                    poetry run last-access --help
                     poetry run lockable-resources --help
-
-                    # scripts without argparser or some other reason
-                    # poetry run decent-output --help
-                    # poetry run procmon --help
-                    # poetry run pycinfo --help
                 """);
             }
 
