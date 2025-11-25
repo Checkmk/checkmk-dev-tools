@@ -102,7 +102,7 @@ def api_call(state: LockStateTypes, args: Args) -> None:
 
             # https://github.com/jenkinsci/lockable-resources-plugin/issues/103
             url = f"{jenkins.client.server}/lockable-resources/{state}?resource={resource_name}"
-            result = jenkins.client._session.post(url)  # type: ignore[attr-defined]
+            result = jenkins.client._session.post(url)  # type: ignore[attr-defined] # noqa: SLF001
             if result.status_code == RESOURCE_LOCKED_STATUS_CODE:
                 logger.warning(f"Resource {resource_name} already locked")
                 if args.fail_already_locked:
@@ -118,7 +118,7 @@ def list_resources(args: Args) -> None:
     # https://JENKINS_URL/lockable-resources/api/json
     with AugmentedJenkinsClient(**extract_credentials(), timeout=args.timeout) as jenkins:
         url = f"{jenkins.client.server}/lockable-resources/api/json?tree=resources[*]"
-        result = jenkins.client._session.get(url).json()
+        result = jenkins.client._session.get(url).json()  # noqa: SLF001
         logger.debug(f"Found {len(result['resources'])} lockable resources")
 
     buckets: dict[str, list[str]] = {}

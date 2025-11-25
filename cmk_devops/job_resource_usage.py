@@ -293,7 +293,7 @@ def format_peak_time(dp: Datapoint, start_time: datetime) -> str:
     return f"{start_time + delta}"
 
 
-def format_bytes(size: int | float) -> str:
+def format_bytes(size: float) -> str:
     # Adapted from https://stackoverflow.com/a/49361727
     # 2**10 = 1024
     power = 2**10
@@ -375,10 +375,7 @@ def guess_jenkins_job(metadata: ContainerMetadata) -> str:
     # present in the mountpoint, like the distro we build for.
     # In this case try to make use of that.
     second_candidate = possible_names[1]
-    if all(
-        cand.startswith(second_candidate) or cand.startswith(first_candidate)
-        for cand in possible_names
-    ):
+    if all(cand.startswith((second_candidate, first_candidate)) for cand in possible_names):
         return second_candidate
 
     pprint(mounts)
