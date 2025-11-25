@@ -84,10 +84,10 @@ def current_os_name() -> str:  # pylint: disable=too-many-return-statements
             return "el8"
         if redhat_release.startswith("AlmaLinux release 9"):
             return "el9"
-        raise NotImplementedError()
+        raise NotImplementedError
 
     if not (os_release := _read_os_release()):
-        raise NotImplementedError()
+        raise NotImplementedError
 
     if os_release["NAME"] == "SLES":
         return f"sles{os_release['VERSION'].lower().replace('-', '')}"
@@ -99,4 +99,4 @@ def current_os_name() -> str:  # pylint: disable=too-many-return-statements
             return "jessie"
         return os_release["VERSION_CODENAME"]
 
-    raise NotImplementedError()
+    raise NotImplementedError

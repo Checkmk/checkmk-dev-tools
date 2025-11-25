@@ -16,7 +16,7 @@ LOG_COMMAND = ["--log-level", "debug"]
 VALIDATION_JOB = "python-packages/checkmk_dev_tools/cv/test-job-checkmk-dev-tools"
 
 
-def current_commit(path: Path = Path(".")) -> str:
+def current_commit(path: Path = Path()) -> str:
     return check_output(["git", "rev-parse", "HEAD"], text=True).strip("\n")
 
 
@@ -25,7 +25,7 @@ def jenkins_config_file_exists(path: Path = Path(".config/jenkins_jobs/jenkins_j
 
 
 def build_base_command(subcommand: str, with_influxdb: bool = False) -> List[str]:
-    command = [CI_ARTIFACTS_COMMAND] + LOG_COMMAND
+    command = [CI_ARTIFACTS_COMMAND, *LOG_COMMAND]
     if not jenkins_config_file_exists():
         command.extend(
             [
@@ -87,7 +87,7 @@ def test_filter_by_prefix() -> None:
     assert (
         filter_by_prefix(
             dictionary=multi_entry_dict,
-            unallowed_prefixes=[f"{x}" for x in single_entry_dict.keys()],
+            unallowed_prefixes=[f"{x}" for x in single_entry_dict],
             strip_prefix=f"{other_prefix}_",
         )
         == other_entry_dict
@@ -188,7 +188,7 @@ def test_request() -> None:
     first_response = parse_response(command=command)
     # on the first run there should but might not be a build
     # conditionally check first response, build might already exist
-    if "triggered_build" in first_response.keys():
+    if "triggered_build" in first_response:
         first_expectation = {
             "triggered_build": {
                 "path": VALIDATION_JOB,
