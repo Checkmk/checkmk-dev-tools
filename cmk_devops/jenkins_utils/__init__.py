@@ -37,7 +37,7 @@ GenMapVal = Union[None, bool, str, float, int, "GenMapArray", "GenMap"]
 GenMapArray = Sequence[GenMapVal]
 GenMap = Mapping[str, GenMapVal]
 
-JobParamValue = Union[int, str, bool]
+JobParamValue = int | str | bool
 JobParams = MutableMapping[str, JobParamValue]
 JobSpecifier = Union[str, Sequence[str], "Job"]
 
@@ -495,8 +495,7 @@ def params_from(build_info: GenMap, action_name: str, item_name: str) -> GenMap:
                     str(p["name"]): p["value"]
                     for p in map(lambda a: cast(GenMap, a), cast(GenMapArray, action[item_name]))
                 }
-            else:
-                return cast(GenMap, action[item_name])
+            return cast(GenMap, action[item_name])
     return {}
 
 
@@ -651,7 +650,7 @@ def extract_credentials(
     }
 
     if credentials:
-        creds_keys = [key.removesuffix("_env") for key in credentials.keys()]
+        creds_keys = [key.removesuffix("_env") for key in credentials]
         try:
             for key in creds_keys:
                 extracted_creds[key] = (
@@ -664,7 +663,7 @@ def extract_credentials(
         # Ensure all keys required to interact with a remote service are extracted
         if all(key in extracted_creds for key in section_settings[config_section]["required_keys"]):
             # AugmentedJenkinsClient only accepts a specific set of keywords
-            unallowed_prefixes = [f"{x}_" for x in section_settings.keys() if x != config_section]
+            unallowed_prefixes = [f"{x}_" for x in section_settings if x != config_section]
             if config_section != "jenkins":
                 # remove all keys defined for jenkins. This is a fix for not prefixing them initially while this tool was created
                 unallowed_prefixes += list(section_settings["jenkins"]["required_keys"])
@@ -673,8 +672,7 @@ def extract_credentials(
                 unallowed_prefixes=unallowed_prefixes,
                 strip_prefix=f"{config_section}_",
             )
-        else:
-            log().error("Not all required keys have been loaded from env")
+        log().error("Not all required keys have been loaded from env")
 
     log().debug(
         "Credentials haven't been (fully) provided via --credentials, trying JJB config instead"
@@ -766,7 +764,7 @@ class AugmentedJenkinsClient:
                 jobs,
                 key=lambda j: j["name"].rsplit("_")[-1].replace(".", ""),
             ):
-                node_path = parent_path + (raw_job["name"],)
+                node_path = (*parent_path, raw_job["name"])
                 node_name = "/".join(node_path)
                 jtype = raw_job["_class"].rsplit(".", 1)[-1]
 
@@ -796,7 +794,7 @@ class AugmentedJenkinsClient:
                     )
                 except StopIteration as exc:
                     raise KeyError(pattern) from exc
-                path = path + (folder,)
+                path = (*path, folder)
                 yield path, Folder(name=folder)
 
             for element in recursive_traverse(sub_jobs, path):
@@ -814,7 +812,7 @@ class AugmentedJenkinsClient:
         return cast(int, build_info["timestamp"]) // 1000
 
     async def change_sets(self, job: JobSpecifier, build_nr: None | int) -> Iterable[Change]:
-        """ "Returns the list of change sets of a given build"""
+        """Returns the list of change sets of a given build"""
         if build_nr is None:
             return []
         try:
@@ -876,7 +874,7 @@ class AugmentedJenkinsClient:
         job_path = self.job_path_from(job)
         url = f"{'/job/'.join((self.client.server, *(job_path.split('/'))))}/wfapi/runs"
         log().debug("fetch run information for %s", job_path)
-        return cast(GenMap, self.client._session.get(url).json())
+        return cast(GenMap, self.client._session.get(url).json())  # noqa: SLF001
 
     @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
     async def raw_build_info(self, job: JobSpecifier, build_number: int) -> GenMap:

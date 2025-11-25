@@ -39,12 +39,12 @@ def binary_replace(
     replace_all: bool,
     max_strlen: int,
 ) -> None | bytes:
-    """Searches @buffer for @src and replaces it with @dst, keeping the same length and
+    r"""Searches @buffer for @src and replaces it with @dst, keeping the same length and
     taking null termination into account
-    >>> sequence_in = b"replace: ABCDdef\\x00but not this, and this: ABCD\\x00but not this"
+    >>> sequence_in = b"replace: ABCDdef\x00but not this, and this: ABCD\x00but not this"
     >>> sequence_out = binary_replace(sequence_in, b"A.*?D", b"abc", True, True, 1000)
     >>> print(sequence_out)
-    b'replace: abcdef\\x00\\x00but not this, and this: abc\\x00\\x00but not this'
+    b'replace: abcdef\x00\x00but not this, and this: abc\x00\x00but not this'
     >>> assert len(sequence_in) == len(sequence_out)
     """
     something_replaced = None

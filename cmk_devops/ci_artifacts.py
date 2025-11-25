@@ -326,14 +326,13 @@ def download_artifacts(
         log().info("No artifacts available for this build")
         if no_raise:
             return [], []
-        else:
-            raise Fatal("Job has no artifacts!")
+        raise Fatal("Job has no artifacts!")
 
     # create new fingerprints from artifact names an fingerprint hashes, keeping their order
     artifact_hashes = dict(
         zip(
             sorted(build.artifacts),
-            (fprint["hash"] for fprint in client._session.get(fp_url).json()["fingerprint"]),
+            (fprint["hash"] for fprint in client._session.get(fp_url).json()["fingerprint"]),  # noqa: SLF001
         )
     )
 
@@ -347,9 +346,9 @@ def download_artifacts(
     if not artifact_hashes:
         raise Fatal(f"no (fingerprinted) artifacts found at {build.url}")
 
-    existing_files = set(
+    existing_files = {
         p.relative_to(out_dir).as_posix() for p in out_dir.glob("**/*") if p.is_file()
-    )
+    }
 
     for artifact in build.artifacts:
         existing_files -= {artifact}
@@ -374,7 +373,7 @@ def download_artifacts(
         for attempts_left in reversed(range(MAX_RETRY_ATTEMPTS + 1)):
             time_start = time.time()
             try:
-                with client._session.get(f"{build.url}artifact/{artifact}", stream=True) as reply:
+                with client._session.get(f"{build.url}artifact/{artifact}", stream=True) as reply:  # noqa: SLF001
                     log().debug("download: %s", artifact)
                     reply.raise_for_status()
                     artifact_filename.parent.mkdir(parents=True, exist_ok=True)
@@ -871,20 +870,15 @@ def query_matching_builds(
         response = query_api.query(query, org=org)
 
         for record in response[0].records:
-            row_dict = {}
-
-            # Always add time column
-            row_dict["time"] = record.get_time().isoformat()  # type: ignore[no-untyped-call]
-
-            # Add values for each field
-            for key, value in record.values.items():
-                if key not in keys_to_skip:
-                    row_dict[key] = value
+            row_dict = {
+                "time": record.get_time().isoformat(),  # type: ignore[no-untyped-call]
+                **{key: value for key, value in record.values.items() if key not in keys_to_skip},
+            }
 
             this_data.append(row_dict)
 
         return this_data
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - blind exception
         log().error(f"Error querying InfluxDB: {e}")
         return []
 
@@ -1061,7 +1055,7 @@ async def identify_matching_build(
                 path_hashes={},
                 artifacts=[],
                 causes=[],
-                inProgress=True if build_result == "RUNNING" else False,
+                inProgress=build_result == "RUNNING",
                 parameters={
                     k: v if v is not None else ""
                     for k, v in this_build.items()
