@@ -122,12 +122,6 @@ def parse_args() -> Args:
             action="store_true",
             help="Do not raise an Exception in case of errors",
         )
-        subparser.add_argument(
-            "--ignore-build-queue",
-            dest="ignore_build_queue",
-            action="store_true",
-            help="Do not query jenkins build queue for matching job runs",
-        )
 
     def apply_request_args(subparser: ArgumentParser) -> None:
         subparser.add_argument(
@@ -158,6 +152,12 @@ def parse_args() -> Args:
                 "Provide a string (currently only 'today') which specifies the max age of a"
                 " build to be considered valid."
             ),
+        )
+        subparser.add_argument(
+            "--ignore-build-queue",
+            dest="ignore_build_queue",
+            action="store_true",
+            help="Do not query jenkins build queue for matching job runs",
         )
         subparser.add_argument(
             "-f",
@@ -1186,7 +1186,7 @@ async def await_build(
     path_hashes: None | PathHashes,
     allow_to_cancel: bool = True,
     next_check_sleep: int = 60,
-    no_raise: bool = False,
+    no_raise: bool = False,  # noqa: ARG001
 ) -> Build:
     """Awaits a Jenkins job build specified by @job_full_path and @build_number and returns the
     awaited Build object. Unexpected build failures or non-matching path hashes will be raised on.
@@ -1277,14 +1277,15 @@ def main() -> None:
         else:
             # for some reasons terminal type and properties are not recognized correctly by rich,
             # so 'temporarily' we force width and color
+            # dump terminals (like in CI) default to 80 columns
             if "CI" in os.environ:
                 os.environ.setdefault("FORCE_COLOR", "true")
-                os.environ.setdefault("COLUMNS", "200")
+                os.environ.setdefault("COLUMNS", "500")
 
             setup_logging(
                 logger=log(),
                 level=args.log_level,
-                show_name=False,
+                show_name=True,
                 show_funcname=False,
             )
 

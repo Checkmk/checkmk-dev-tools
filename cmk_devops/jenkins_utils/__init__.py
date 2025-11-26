@@ -58,7 +58,7 @@ class PedanticBaseModel(BaseModel):
     # Set to "forbid" in ordert to enforce a stricter pydantic validation which
     # raises on unknown attributes. Activate it in development only since it will
     # break runtimes when Jenkins API changes again.
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     _ignored_keys: ClassVar[Set[str]] = set()
     type: str
@@ -384,8 +384,11 @@ class BuildNode(PedanticBaseModel):
     name: str
     displayName: str
 
-    # BuildNode instances never have a _class, but we want to derive PedanticBaseModel
-    type: str = "BuildNode"
+    # BuildNode instances not always have a _class, but we want to derive PedanticBaseModel
+    # ype: str = "BuildNode"
+    type: Literal["undefined", "Hudson$MasterComputer", "SlaveComputer", "KubernetesComputer"] = (
+        "undefined"
+    )
 
     _ignored_keys = {
         "offline",  # : bool
@@ -476,6 +479,15 @@ class BuildStages(PedanticBaseModel):
     stages: Sequence[StageInfo]
     # we omit all other infos here for now - all information can be taken from Build
 
+    # start_timestamp: int
+    # duration_sec: int
+    # pause_sec: int
+    # queue_sec: int
+    # end_timestamp: int
+    # id: str
+    # name: str
+    # status: str
+
     # StageInfo instances not always have a _class, but we want to derive PedanticBaseModel
     type: Literal["undefined"] = "undefined"
 
@@ -490,6 +502,19 @@ class BuildStages(PedanticBaseModel):
         "queueDurationMillis",
         "pauseDurationMillis",
     }
+
+    @model_validator(mode="before")
+    @classmethod
+    def correct_buildstages(cls, obj: Json[dict[str, Any]]) -> Json[dict[str, Any]]:
+        """Refactor init to match our expectations"""
+        return {
+            **obj,
+            # "start_timestamp": obj["startTimeMillis"] // 1000,
+            # "duration_sec": obj["durationMillis"] // 1000,
+            # "end_timestamp": obj["endTimeMillis"] // 1000,
+            # "pause_sec": obj["pauseDurationMillis"] // 1000,
+            # "queue_sec": obj["queueDurationMillis"] // 1000,
+        }
 
 
 class Change(PedanticBaseModel):
@@ -746,6 +771,7 @@ class AugmentedJenkinsClient:
 
     def __init__(self, url: str, username: str, password: str, timeout: int | None = None) -> None:
         """Create a Jenkins client interface using the config file used for JJB"""
+        log().debug("Instanciate Jenkins..")
         self.client = Jenkins(
             url=url,
             username=username,
@@ -965,6 +991,7 @@ class AugmentedJenkinsClient:
         log().debug("fetch JVM ressource stats via script")
         self._api_call_count += 1
         return {
+            # fixme: add FGC
             key: int(value)
             for key, value in json.loads(
                 self.client.run_script(
@@ -1011,6 +1038,30 @@ class AugmentedJenkinsClient:
             for run in await self.raw_run_info(job)
         }
 
+    @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
+    async def executor_info(self) -> GenMap:
+        # https://community.jenkins.io/t/jenkins-json-api-get-current-running-jobs-on-an-executor/13857
+        url = f"{self.client.server}/computer/api/json?tree=computer[displayName,executors[currentExecutable[*]]]&pretty=true"
+        self._api_call_count += 1
+        return cast(GenMap, self.client._session.get(url).json()["computer"])  # noqa: SLF001
+
+    @async_retry(tries=MAX_ATTEMPTS, delay=1, logger=log())
+    async def get_artifact(self, build: Build, name: str) -> None:
+        with self.client._session.get(f"{build.url}artifact/{name}", stream=True) as reply:  # noqa: SLF001
+            # log().debug("download: %s", artifact)
+            reply.raise_for_status()
+            # artifact_filename.parent.mkdir(parents=True, exist_ok=True)
+            # with open(artifact_filename, "wb") as out_file:
+            #    for chunk in reply.iter_content(chunk_size=8192):
+            #        if (current_dl_duration := (time.time() - time_start)) > total_download_timeout:
+            #            raise TimeoutError(
+            #                f"Downloading of {reply.url} took longer than {total_download_timeout}s"
+            #            )
+            #        if chunk:  # Filter out keep-alive chunks
+            #            out_file.write(chunk)
+            # log().debug("download: %s - successful (took %.2fs)", artifact, current_dl_duration)
+            # downloaded_artifacts.append(artifact)
+
     def api_call_count(self) -> int:
         return self._api_call_count
 
@@ -1020,59 +1071,278 @@ async def main() -> None:  # pylint: disable=too-many-locals
     logging.basicConfig(level=logging.WARNING)
     log().setLevel(logging.DEBUG)
 
-    async with AugmentedJenkinsClient(**extract_credentials(), timeout=60) as jenkins_client:
-        for build in await jenkins_client.running_builds():
-            print(build)
 
-        for build_node in await jenkins_client.build_nodes():
-            print(build_node)
-            info = await jenkins_client.node_info(build_node.name)
-            assert info.name == build_node.name
-            print(info)
+async def example_main() -> None:  # pylint: disable=too-many-locals
+    """Just a non-invasive showcase function"""
+    # ruff: noqa: PLC0415
 
-        async for job_path, job in jenkins_client.traverse_job_tree("checkmk"):
-            if job.type == "Folder":
-                continue
+    import argparse
 
-            assert isinstance(job, SimpleJob)  # can only be a SimpleJob now..
-            job_info = await jenkins_client.job_info(job_path)
+    import yaml
+    from rich import print as rich_print
+    from trickkiste.logging_helper import apply_common_logging_cli_args, setup_logging
 
-            status = job_info.color.split("_")[0]
+    # import jenkins
+    parser = argparse.ArgumentParser(description=__doc__)
+    apply_common_logging_cli_args(parser)
+    apply_common_jenkins_cli_args(parser)
+    parser.add_argument(
+        "job_pattern",
+        nargs="*",
+        type=str,
+        default=[
+            # "^checkmk/master.*(build-cmk-distro-package|f12|test-gerrit).*$",
+            # "^checkmk/2.2.0",
+            # "^checkmk/master",
+            # ".*test.*",
+            # ".*testbuild.*",
+            # "^.*validation.*$",
+            # "^checkmk/change_validation/test-gerrit-master$",
+        ],
+    )
+    cli_args = parser.parse_args()
 
-            # if status in {"disabled", "notbuilt", "blue"}:
-            #    continue
+    setup_logging(log(), level=cli_args.log_level)
+    show = {
+        # "queue",
+        # "running_builds",
+        # "nodes",
+        "all_jobs",  # takes long!
+    }
 
-            job_stages = await jenkins_client.stages(job_path)
-            print(job_stages)
+    log().info("connect..")
+    async with AugmentedJenkinsClient(
+        **extract_credentials(cli_args.credentials), timeout=cli_args.timeout
+    ) as jenkins_client:
+        log().info("connected!")
 
-            assert status in {
-                "red",
-                "yellow",
-                "disabled",
-                "notbuilt",
-                "blue",
-                "aborted",
-            }, job_info.color
+        if "queue" in show:
+            """
+            _class: hudson.model.Queue$BuildableItem
+            actions: []
+            blocked: false
+            buildable: true
+            buildableStartMilliseconds: 1757581489719
+            id: 1902267
+            inQueueSince: 1757581489707
+            params: ''
+            pending: false
+            stuck: false
+            task:
+              _class: org.jenkinsci.plugins.workflow.support.steps.ExecutorStepExecution$PlaceholderTask
+            url: queue/item/1902267/
+            why: "Already running 1 builds on node; \u2018Jenkins\u2019 doesn\u2019t have label\
+            """
 
-            print(f"{job_info}, url={job_info.url}")
-            (
-                last_successful,
-                first_failing,
-                last_build,
-            ) = await jenkins_client.failing_transition_numbers(job_info)
-            assert bool(first_failing) is not bool(last_successful == last_build) or last_build == 1
-            if first_failing:
-                print(last_successful, first_failing, last_build)
-                change_set = await jenkins_client.change_sets(job_info, first_failing)
-                print(change_set)
-                build_stages = await jenkins_client.build_stages(job_info, first_failing)
-                print(build_stages)
+            log().info("queue info..")
+            # for queue_item in await jenkins_client.queue_info():
+            now = datetime.now().astimezone()
 
-            await job_info.expand(jenkins_client)
-            for build_nr, build_info in job_info.build_infos.items():
-                assert build_nr == build_info.number
-                print(f"  {build_info}, url={build_info.url}")
+            queue_items = await jenkins_client.queue_info()
+            for simple_queue_item in queue_items:
+                assert simple_queue_item.type.startswith("Queue")
+
+                qi = await jenkins_client.queue_item(simple_queue_item.id, depth=2)
+                queue_url = f"{jenkins_client.client.server}queue/item/{qi.id}/api/json"  # ?tree=cancelled,executable[url]")
+                assert qi.task.url is not None
+                job_url_from_task = (
+                    qi.task.url
+                    if qi.task.url.startswith("http")
+                    else f"{jenkins_client.client.server}{qi.task.url.rsplit('/', 2)[0]}/"
+                )
+
+                job_url = (
+                    qi.executable and f"{qi.executable.url.rsplit('/', 2)[0]}/" or job_url_from_task
+                )
+
+                full_job_url = (
+                    qi.executable and f"{qi.executable.url.rsplit('/', 2)[0]}/" or qi.task.url
+                    if qi.task.url.startswith("http")
+                    else f"{jenkins_client.client.server}{qi.task.url.rsplit('/', 2)[0]}/"
+                )
+
+                assert job_url == full_job_url
+
+                # assert qi.task.url.startswith("http")
+
+                # timestamp: None | datetime = None
+                short_job_name = job_url.replace("/job/", "/").split("/", maxsplit=3)[-1]
+
+                rich_print(
+                    f"  - [link={job_url}]{short_job_name:<55}[/]"
+                    f" [link={queue_url}]{qi.id}[/]:"
+                    f" blocked: {qi.blocked!r:>5}"
+                    f" buildable: {qi.buildable!r:>5}"
+                    f" cancelled: {qi.cancelled!r:>5}"
+                    f" stuck: {qi.stuck!r:>5}"
+                    f" pending: {qi.pending!r:>5}"
+                    f" waiting: {dur_str((now - qi.inQueueSince).total_seconds()):>11}"
+                )
+                # prms = "\n" + "\n".join(f"{k}={v}" for k, v in qi.parameters.items()).replace("True", "true").replace("False", "false")
+                # if qi.params:
+                # rich_print(f"    - params: {qi.params}")
+                # rich_print(f"    - params: {prms}")
+                # assert qi.params == prms
+                # if qi.task:
+                #    rich_print(f"    - task: {qi.task}")
+                #    #if qi.task.url
+                # if qi.executable:
+                #    rich_print(f"    - executable: {qi.executable}")
+
+                assert qi.executable is None or qi.executable.url
+                assert qi.executable is None or qi.executable.url.startswith("http"), (
+                    qi.executable.url
+                )
+                assert (
+                    qi.executable is None
+                    or f"{qi.executable.url.rsplit('/', 2)[0]}/" == job_url_from_task
+                ), (qi.executable.url, job_url_from_task)
+
+                assert (
+                    sum(int(e or 0) for e in (qi.blocked, qi.buildable, qi.cancelled)) < 2
+                )  # qi.stuck, qi.pending
+                match qi.type.split("$")[-1]:
+                    case "BlockedItem":
+                        assert (qi.buildable, qi.blocked) == (False, True)
+                        # assert qi.task.url is None
+                        assert qi.task.url.startswith("http")
+                    case "WaitingItem":
+                        assert (qi.buildable, qi.blocked) == (False, False)
+                        assert qi.task.url.startswith("http")
+                    case "BuildableItem":
+                        assert (qi.buildable, qi.blocked) == (True, False)
+                        # can be both here
+                        assert qi.task.url.startswith("job/") or qi.task.url.startswith("http")
+                        # assert qi.task.url.startswith("job/"),  qi.task.url
+                        # assert qi.task.url.startswith("http"),  qi.task.url
+                    case "LeftItem":
+                        assert (qi.buildable, qi.blocked) == (False, False)
+                        # can be both here
+                        assert qi.task.url.startswith("job/") or qi.task.url.startswith("http")
+                        # assert qi.task.url.startswith("http")
+                        # assert qi.task.url.startswith("job/")
+                    case _:
+                        assert qi.type != qi.type
+                # if qi.task.url and qi.task.url.startswith("http"):
+                #     print(yaml.dump(qi.model_dump()))
+
+                simple_queue_item.task.url = qi.task.url
+                if qi != simple_queue_item:
+                    print(yaml.dump(simple_queue_item.model_dump()))
+                    print(yaml.dump(qi.model_dump()))
+                    raise SystemExit(1)
+
+                # why
+                # for k in {"id", "url", "why", "task", "stuck", "pending", "buildable", "blocked", "actions", "inQueueSince", "params", "buildableStartMilliseconds"}:
+                #    qi.pop(k,None)
+                # print(yaml.dump({qi['id']: qi
+
+                # }))
+            print(f"{len(queue_items)} queue items")
+
+        if "running_builds" in show:
+            log().info("fetch running builds..")
+            job_builds: dict[str, list[str]] = {}
+            for build in await jenkins_client.running_builds():
+                path = [e for e in build.url.split("/") if e and e != "job"]
+                job = "/".join(path[2:-1])
+                assert path[-1] == str(build.number)
+
+                job_builds.setdefault(job, []).append(
+                    f"[link={build.url}]{path[-1]:>6} [/] ({build.node})"
+                )
+
+            for job_name, builds in job_builds.items():
+                rich_print(f"* {job_name}")
+                for build_str in builds:
+                    rich_print(f"    - {build_str}")
+
+            print(f"{sum(len(builds) for builds in job_builds.values())} builds")
+
+        if "nodes" in show:
+            for build_node in await jenkins_client.build_nodes():
+                print(f"build node: {build_node.name}")
+                try:
+                    info = await jenkins_client.node_info(build_node.name)
+                    assert info.name == build_node.name
+                    print(info)
+                except JenkinsException:
+                    log().info("Build node %s disappeared", build_node.name)
+
+        if "all_jobs" in show:
+            # fixme: path
+            async for node_path, node in jenkins_client.traverse_job_tree(ignored_pattern=None):
+                if node.type == "Folder" or node_path[0] == "Old":
+                    continue
+                assert isinstance(node, SimpleJob)  # can only be a SimpleJob now..
+
+                assert node.type in {"WorkflowJob", "FreeStyleProject"}
+
+                job_full_name = "/".join(node_path)
+
+                # if job_pattern and not any(re.match(p, job_full_name) for p in job_pattern):
+                #     continue
+                # try:
+                job_info = await jenkins_client.job_info(job_full_name)
+
+                status = job_info.color.split("_")[0]
+                # if status in {"disabled", "notbuilt", "blue"}:
+                #    continue
+                assert status in {
+                    "red",
+                    "yellow",
+                    "disabled",
+                    "notbuilt",
+                    "blue",
+                    "aborted",
+                }, job_info.color
+
+                assert job_info.url.startswith("http")
+                assert not job_info.build_infos
+                p = job_info.url.replace("/job/", "/").split("/", maxsplit=3)[-1]
+                assert p.startswith(job_info.path), (job_info.path, p)
+                rich_print(
+                    f"  - [link={job_info.url}]{job_info.path}[/]: {job_info.type} {job_info.color}"
+                    # name: test-package-cmk-agent-ctl
+                    # lastCompletedBuild: null
+                    # lastSuccessfulBuild: null
+                )
+                # job_stages = await jenkins_client.stages(job_full_name)
+                # print(job_stages)
+
+                # (
+                # last_successful,
+                # first_failing,
+                # last_build,
+                # ) = await jenkins_client.failing_transition_numbers(job_info)
+                # assert bool(first_failing) is not bool(last_successful == last_build) or last_build == 1
+                # if first_failing:
+                # print(last_successful, first_failing, last_build)
+                # change_set = await jenkins_client.change_sets(job_info, first_failing)
+                # print(change_set)
+                # build_stages = await jenkins_client.build_stages(job_info, first_failing)
+                # print(build_stages)
+
+                await job_info.expand(jenkins_client)
+                for build_nr, build_info in job_info.build_infos.items():
+                    assert build_nr == build_info.number
+                    print(f"  {build_info}, url={build_info.url}")
+
+                for build_nr in sorted((b.number for b in job_info.builds), reverse=True):
+                    try:
+                        raw_build = await jenkins_client.raw_build_info(job_full_name, build_nr)
+                    except JenkinsException as exc:
+                        log().warning(
+                            "Could not get build %d for %s: %s", build_nr, job_full_name, exc
+                        )
+                        continue
+
+                    # print("==")
+                    # print(yaml.dump(raw_build))
+                    build_info = Build.model_validate(raw_build)
+                    rich_print(f"{job_info.path} {build_nr} {build_info}")
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    with suppress(KeyboardInterrupt):
+        asyncio.run(example_main())

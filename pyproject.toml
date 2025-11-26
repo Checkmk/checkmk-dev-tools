@@ -75,7 +75,7 @@ suppress-dummy-args = true
 max-complexity = 15
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py312"
 line-length = 100
 # fix = true
 
@@ -83,7 +83,7 @@ line-length = 100
 # see https://docs.astral.sh/ruff/linter/
 # https://github.com/astral-sh/ruff-pre-commit
 select = [
-    #"ALL",  # all available linting checks
+    "ALL",  # all available linting checks
     "B",    # flake8-bugbear: reports potential bugs
     "C90",  # Complexity: violations of 90th percentile of cyclomatic complexity
     "C",    # Complexity: general code complexity issues
@@ -97,42 +97,72 @@ select = [
 ]
 ignore = [
     # These should be fixed eventually
+    "A004",     # Import `print` is shadowing a Python builtin
     "B005",     # Using `.strip()` with multi-character strings is misleading
     "B008",     # Do not perform function call `datetime.now` in argument defaults;
-    "B011",     # Do not `assert False`
-    "B905",     #  [*] `zip()` without an explicit `strict=` parameter
-    "C401",     # Unnecessary generator
+    "B905",     # `zip()` without an explicit `strict=` parameter
     "C417",     # Unnecessary "map" usage
     "C901",     # .. is too complex
+    "D100",     # Missing docstring in public module
+    "D101",     # Missing docstring in public class
+    "D102",     # Missing docstring in public method
+    "D103",     # Missing docstring in public function
+    "D105",     # Missing docstring in magic method
+    "D105",     # Missing docstring in magic method
+    "D107",     # Missing docstring in `__init__`
+    "DTZ001",   # `datetime.datetime()` called without a `tzinfo` argument
+    "DTZ005",   # `datetime.datetime.now()` called without a `tz` argument
+    "DTZ006",   # `datetime.datetime.fromtimestamp()` called without a `tz` argument
+    "DTZ007",   # Naive datetime constructed using `datetime.datetime.strptime()` without %z
     "E501",     # line too long
+    "ERA001",   # commented out code
+    "FBT001",   # Boolean-typed positional argument in function definition
+    "FBT002",   # Boolean default positional argument in function definition
+    "FIX001",   # Line contains FIXME, consider resolving the issue
+    "FIX002",   # Line contains TODO, consider resolving the issue
+    "G004",     # Logging statement uses f-string
+    "N815",     # Variable `lastCompletedBuild` in class scope should not be mixedCase
+    "N818",     # Exception name `Fatal` should be named with an Error suffix
     "PLR0911",  # Too many return statements
     "PLR0912",  # Too many branches
     "PLR0913",  # Too many arguments in function definition
     "PLR0915",  # Too many statements
     "PLR2004",  #  Magic value used in comparison
-    "SIM102",   #  Use a single `if` statement instead of nested `if` statements
-    "SIM105",   # Use `contextlib.suppress(ProcessLookupError)` instead of `try`-`except`-`pass`
-    "SIM118",   # Use `key in dict` instead of `key in dict.keys()`
-    "SIM210",   #  Remove unnecessary `True if ... else False`
-    "SIM223",   # Use `False` instead of `False and ...`
-    "UP006",    # [*] Use `dict` instead of `Dict` for type annotation
-    "UP007",    # Use `X | Y` for type annotations
-    "UP017",    # [*] Use `datetime.UTC` alias
-    "UP035",    # [*] Import from `collections.abc` instead: `Sequence`
+    "PT003",    # `scope='function'` is implied in `@pytest.fixture()`
+    "PTH123",   # `open()` should be replaced by `Path.open()`
+    "PTH205",   # `os.path.getctime` should be replaced by `Path.stat().st_ctime`
+    "PYI025",   # Use `from collections.abc import Set as AbstractSet` to avoid confusion with the `set` builtin
+    "RUF021",   # Parenthesize `a and b` expressions when chaining `and` and `or` together, to make the precedence clear
+    "RUF100",   # Unused `noqa` directive (non-enabled: `PLR2004`)
+    "S302",     # Deserialization with the `marshal` module is possibly dangerous
+    "S603",     # `subprocess` call: check for execution of untrusted input
+    "S607",     # Starting a process with a partial executable path
+    "SIM102",   # Use a single `if` statement instead of nested `if` statements
+    "T203",     # `pprint` found
+    "TC006",    # Add quotes to type expression in `typing.cast()`
+    "TD002",    # Missing author in TODO; try: `# TODO(<author_name>): ...` or `# TODO @<author_name>: ...`
+    "TD006",    # Invalid TODO capitalization: `Todo` should be `TODO`
+    "TRY300",   # Consider moving this statement to an `else` block
+    "TRY301",   # Abstract `raise` to an inner function
+    "UP006",    # Use `dict` instead of `Dict` for type annotation
+    "UP017",    # Use `datetime.UTC` alias
+    "UP035",    # Import from `collections.abc` instead: `Sequence`
+    "YTT204",   # `sys.version_info.minor` compared to integer (python4), compare `sys.version_info` to tuple
 
     # These are ignored on purpose
     "ASYNC230", # Async functions should not open files with blocking methods like `open`
     "COM812",   # missing-trailing-comma
-    "D202",     # No blank lines allowed after function docstring (found 1)
-    #"D203",     # incorrect-blank-line-before-class
+    "D202",     # No blank lines allowed after function docstring (no-blank-line-before-class)
+    "D203",     # incorrect-blank-line-before-class, conflicts with D211
     "D205",     # 1 blank line required between summary line and description
     "D209",     # Multi-line docstring closing quotes should be on a separate line
-    #"D211",     # conflicts: no-blank-line-before-class
+    #"D211",     # conflicts: no-blank-line-before-class, conflicts with D203
     "D212",     # Multi-line docstring summary should start at the first line
     "D213",     # Multi-line docstring
     "D400",     # First line should end with a period
     "D401",     # First line of docstring should be in imperative mood
     "D403",     # First word of the docstring should be capitalized: `def` -> `Def`
+    "D413",     # Missing blank line after last section
     "D415",     # First line should end with a period, question mark, or exclamation point
     "EM101",    # Exception must not use a string literal, assign to variable first
     "EM102",    # Exception must not use an f-string literal, assign to variable first
@@ -146,8 +176,13 @@ ignore = [
     "TRY003",   # Avoid specifying long messages outside the exception class
 ]
 
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = [
+    "ARG001",   # Unused function argument: `mock_settings_env_vars`
+]
+
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.12"
 strict=true
 disallow_untyped_defs=true
 disallow_any_unimported=true
