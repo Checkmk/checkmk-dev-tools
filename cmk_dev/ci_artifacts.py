@@ -1039,6 +1039,11 @@ async def identify_matching_build(
             build_result: JobResult = this_build.get("build_result", "FAILURE")
             build_number: int = this_build.get("build_number", 0)
             this_result: JobResult | None = build_result if isinstance(build_result, str) else None
+            build_parameters: Mapping[str, str | bool] = {
+                k: v if v is not None else ""
+                for k, v in this_build.items()
+                if isinstance(k, str) and k.isupper()
+            }
 
             if existing_job := builds.get(build_number):
                 # existing timestamp is stored in seconds already
@@ -1048,6 +1053,7 @@ async def identify_matching_build(
                 # do not overwrite an existing build result with an earlier (running) result
                 if this_result == "RUNNING":
                     this_result = existing_job.result
+                    build_parameters = existing_job.parameters
 
             # reconstruct a Build object as good as possible
             builds[build_number] = Build(
@@ -1061,11 +1067,7 @@ async def identify_matching_build(
                 artifacts=[],
                 causes=[],
                 inProgress=True if build_result == "RUNNING" else False,
-                parameters={
-                    k: v if v is not None else ""
-                    for k, v in this_build.items()
-                    if isinstance(k, str) and k.isupper()
-                },
+                parameters=build_parameters,
             )
 
         log().info(
