@@ -807,6 +807,7 @@ async def _fn_await_and_handle_build(args: Args) -> None:
             allow_to_cancel=False,
             next_check_sleep=args.poll_sleep,
             no_raise=args.no_raise,
+            download=args.download,
         )
         print(
             json.dumps(
@@ -1193,6 +1194,7 @@ async def await_build(
     allow_to_cancel: bool = True,
     next_check_sleep: int = 60,
     no_raise: bool = False,
+    download: bool = False,
 ) -> Build:
     """Awaits a Jenkins job build specified by @job_full_path and @build_number and returns the
     awaited Build object. Unexpected build failures or non-matching path hashes will be raised on.
@@ -1212,7 +1214,7 @@ async def await_build(
 
         log().info("build finished with result=%s", current_build_info.result)
 
-    if all([check_result, current_build_info.result != "SUCCESS"]):
+    if all([check_result, current_build_info.result != "SUCCESS", not download]):
         raise Fatal(
             "The build we started has "
             f"result={current_build_info.result} ({current_build_info.url})"
