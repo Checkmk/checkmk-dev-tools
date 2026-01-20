@@ -1,0 +1,71 @@
+[tasks.default]
+description = "Run the default task (build in release mode)"
+dependencies = ["build-release"]
+
+[tasks.build]
+description = "Build the project in debug mode"
+command = "cargo"
+args = ["build"]
+
+[tasks.build-release]
+description = "Build the project in release mode"
+command = "cargo"
+args = ["build", "--release"]
+
+[tasks.test]
+description = "Run all tests"
+command = "cargo"
+args = ["test", "--", "--nocapture"]
+
+[tasks.test-integration]
+description = "Run integration tests"
+command = "cargo"
+args = ["test", "--tests"]
+
+[tasks.test-unit]
+description = "Run unit tests only"
+command = "cargo"
+args = ["test", "--lib"]
+
+[tasks.check]
+description = "Check the project without building"
+command = "cargo"
+args = ["check"]
+
+[tasks.check-release]
+description = "Check the project in release mode"
+command = "cargo"
+args = ["check", "--release"]
+
+[tasks.fmt]
+description = "Format the code"
+command = "cargo"
+args = ["fmt"]
+
+[tasks.fmt-check]
+description = "Check if code is formatted"
+command = "cargo"
+args = ["fmt", "--", "--check"]
+
+[tasks.clippy]
+description = "Run clippy linter"
+command = "cargo"
+args = ["clippy", "--", "-W", "clippy::pedantic", "-D", "warnings"]
+
+[tasks.clippy-fix]
+description = "Run clippy linter"
+command = "cargo"
+args = ["clippy", "--fix", "--allow-dirty", "--", "-W", "clippy::pedantic", "-D", "warnings"]
+
+[tasks.lint]
+description = "Run all linters (fmt-check and clippy)"
+dependencies = ["fmt-check", "clippy"]
+
+[tasks.clean]
+description = "Clean build artifacts"
+command = "cargo"
+args = ["clean"]
+
+[tasks.all]
+description = "Build, test, and lint everything"
+dependencies = ["build-release", "test", "lint"]
