@@ -29,6 +29,7 @@ from typing import Any, List, Literal, cast
 import requests
 from influxdb_client import InfluxDBClient  # type: ignore[attr-defined]
 from jenkins import Jenkins
+from pydantic import ValidationError
 from trickkiste.logging_helper import apply_common_logging_cli_args, setup_logging
 from trickkiste.misc import compact_dict, cwd, md5from, split_params
 
@@ -1056,20 +1057,27 @@ async def identify_matching_build(
                     this_result = existing_job.result
                     build_parameters = existing_job.parameters
 
-            # reconstruct a Build object as good as possible
-            builds[build_number] = Build(
-                type="WorkflowJob",
-                url=f"{jenkins_client.client.server}/job/{'/job/'.join(p for p in this_build['project_path'].split('/'))}/{build_number}",
-                number=build_number,
-                timestamp=this_timestamp,
-                duration=this_duration,
-                result=this_result,
-                path_hashes={},
-                artifacts=[],
-                causes=[],
-                inProgress=True if build_result == "RUNNING" else False,
-                parameters=build_parameters,
-            )
+            try:
+                # reconstruct a Build object as good as possible
+                builds[build_number] = Build(
+                    type="WorkflowJob",
+                    url=f"{jenkins_client.client.server}/job/{'/job/'.join(p for p in this_build['project_path'].split('/'))}/{build_number}",
+                    number=build_number,
+                    timestamp=this_timestamp,
+                    duration=this_duration,
+                    result=this_result,
+                    path_hashes={},
+                    artifacts=[],
+                    causes=[],
+                    inProgress=True if build_result == "RUNNING" else False,
+                    parameters=build_parameters,
+                )
+            except ValidationError as e:
+                # skip processing the current build but log this
+                # if this would be the matching build it will be unnecessarily retriggered, but the calling job does not fail
+                log().warning(
+                    "identify_matching_build() caught %r (skipping build_number %s)", e, build_number
+                )
 
         log().info(
             f"Got {len(matching_builds)} InfluxDB job history entries of today, generated {len(builds)} builds to check"
