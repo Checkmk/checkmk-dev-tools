@@ -77,6 +77,12 @@ def parse_args() -> Args:
     )
     parser_info.set_defaults(func=_fn_info)
     parser_info.add_argument(
+        "--no-simple-logging",
+        dest="no_simple_logging",
+        action="store_true",
+        help="Use colored and linebreaking rich logger over default python logger",
+    )
+    parser_info.add_argument(
         "job",
         type=lambda a: a.strip(" /"),
         help="Print some useful but informal information about a job",
