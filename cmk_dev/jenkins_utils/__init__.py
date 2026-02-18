@@ -22,11 +22,12 @@ from collections.abc import (
     Set,
 )
 from configparser import ConfigParser
-from contextlib import suppress
+from contextlib import contextmanager, suppress
 from datetime import datetime
 from pathlib import Path
-from typing import Any, ClassVar, Literal, Union, cast
+from typing import Any, ClassVar, Generator, Literal, Union, cast
 
+import requests
 from jenkins import Jenkins, JenkinsException
 from pydantic import BaseModel, ConfigDict, Json, model_validator
 from trickkiste.misc import async_retry, asyncify, compact_dict, date_str, dur_str, split_params
@@ -680,18 +681,45 @@ def extract_credentials(
     return extracted_creds
 
 
+@contextmanager
+def _set_jenkins_client_user_agent() -> Generator[None, None, None]:
+    """
+    Set a custom HTTP User Agent for Sauron.
+
+    This is done to distinguish between various API calls to Jenkins in
+    our production monitoring (service Jenkins Request Metrics).
+    """
+    from cmk_dev.version import __version__
+
+    env_var_name = "JENKINS_API_EXTRA_HEADERS"
+    # Preserve an maybe externall set user agent setting
+    given_user_agent = os.environ.get(env_var_name)
+
+    os.environ[env_var_name] = (
+        f"User-Agent: ci-artifacts {__version__} (python-requests {requests.__version__})"
+    )
+    try:
+        yield
+    finally:
+        if given_user_agent is not None:
+            os.environ[env_var_name] = given_user_agent
+        else:
+            del os.environ[env_var_name]
+
+
 class AugmentedJenkinsClient:
     """Provides typed interface to a JenkinsClient instance"""
 
     def __init__(self, url: str, username: str, password: str, timeout: int | None = None) -> None:
         """Create a Jenkins client interface using the config file used for JJB"""
-        self.client = Jenkins(
-            url=url,
-            username=username,
-            password=password,
-            timeout=timeout if timeout is not None else 60,
-            retries=5,
-        )
+        with _set_jenkins_client_user_agent():
+            self.client = Jenkins(
+                url=url,
+                username=username,
+                password=password,
+                timeout=timeout if timeout is not None else 60,
+                retries=5,
+            )
 
     def __enter__(self) -> "AugmentedJenkinsClient":
         """Checks connection by validating sync_whoami()"""
