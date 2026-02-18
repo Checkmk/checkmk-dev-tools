@@ -569,10 +569,15 @@ def meets_constraints(
 
 
 async def build_id_from_queue_item(
-    client: AugmentedJenkinsClient, queue_id: QueueId, next_check_sleep: int = 30
+    client: AugmentedJenkinsClient,
+    queue_id: QueueId,
+    next_check_sleep: int = 30,
+    queue_item: QueueItem | None = None,
 ) -> BuildId:
     """Waits for queue item with given @queue_id to be scheduled and returns Build instance"""
-    queue_item = await client.queue_item(queue_id)
+    if queue_item is None:
+        queue_item = await client.queue_item(queue_id)
+
     log().info(
         "waiting for queue item %s to be scheduled (%s%s)",
         queue_id,
@@ -674,6 +679,7 @@ async def find_matching_queue_item(
             client=jenkins_client,
             queue_id=queue_item.id,
             next_check_sleep=next_check_sleep,
+            queue_item=queue_item,
         )
 
     log().debug("Found no matching queued item")
