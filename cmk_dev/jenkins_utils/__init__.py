@@ -695,9 +695,10 @@ def _set_jenkins_client_user_agent() -> Generator[None, None, None]:
     # Preserve an maybe externall set user agent setting
     given_user_agent = os.environ.get(env_var_name)
 
-    os.environ[env_var_name] = (
-        f"User-Agent: ci-artifacts {__version__} (python-requests {requests.__version__})"
-    )
+    if not given_user_agent:
+        os.environ[env_var_name] = (
+            f"User-Agent: ci-artifacts {__version__} (python-requests {requests.__version__})"
+        )
     try:
         yield
     finally:
