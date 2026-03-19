@@ -582,7 +582,7 @@ async def build_id_from_queue_item(
 ) -> BuildId:
     """Waits for queue item with given @queue_id to be scheduled and returns Build instance"""
     if queue_item is None:
-        queue_item = await client.queue_item(queue_id)
+        queue_item = await client.queue_item(queue_id, depth=1)
 
     log().info(
         "waiting for queue item %s to be scheduled (%s%s)",
@@ -592,7 +592,7 @@ async def build_id_from_queue_item(
     )
 
     while True:
-        queue_item = await client.queue_item(queue_id)
+        queue_item = await client.queue_item(queue_id, depth=1)
         if queue_item.executable:
             return queue_item.executable.number
         log().debug("still waiting in queue, because %s", queue_item.why)
@@ -640,9 +640,7 @@ async def find_matching_queue_item(
     """Looks for a queued build matching job and parameters and returns the QueueId"""
     log().debug("Checking queued items with the Jenkins API")
 
-    for simple_queue_item in await jenkins_client.queue_info():
-        queue_item = await jenkins_client.queue_item(simple_queue_item.id, depth=2)
-
+    for queue_item in await jenkins_client.queue_info():
         # In order to compare with `job.url` we would have to inject the jenkins base URL
         # Instead we can also strip it off from `job.url` and compare relative URLs instead
         # Instead of "https://ci.com/job/name/42/" == "https://ci.com/job/name/42/" we compare
