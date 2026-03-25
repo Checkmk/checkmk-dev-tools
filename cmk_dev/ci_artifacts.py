@@ -1093,12 +1093,15 @@ async def identify_matching_build(
             f"Got {len(matching_builds)} InfluxDB job history entries of today, generated {len(builds)} builds to check"
         )
 
+        log().info("Check for matching existing builds")
         # ugly code duplication incomming, rework this to a dedicated function
         for build in list(builds.values()):
             if meets_constraints(build, params, time_constraints, path_hashes):
                 log().info("found matching (may finished) build: %s (%s)", build.number, build.url)
                 return build
+        log().info("No matching builds found in the InfluxDB")
 
+        log().info("Check for matching queue items via Jenkins API")
         if hasattr(args, "ignore_build_queue") and not args.ignore_build_queue:
             if matching_item := await find_matching_queue_item(
                 jenkins_client=jenkins_client,
@@ -1107,32 +1110,39 @@ async def identify_matching_build(
                 path_hashes=path_hashes,
                 next_check_sleep=next_check_sleep,
             ):
-                log().debug("Found matching queued item %s", matching_item)
+                log().info("Found matching queued item %s", matching_item)
                 return await jenkins_client.build_info(job.path, matching_item)
+        log().info("No matching queue items found via Jenkins API")
 
         # exit here with no matching result if
         # - the InfluxDB connection was a success
         # - and some data was found by the query
         # otherwise fall back to the old Jenkins job history crawling
         if influx_client.health().status == "pass" and matching_builds:
+            log().info("Return None and schedule a new build")
             return None
 
-    log().debug("Start finding matching build via Jenkins API")
+    log().info("Start finding matching build via Jenkins API")
     # fetch a job's build history first
     await job.expand(jenkins_client)
 
+    log().info("Check for matching existing builds")
     # Look for finished builds
     for build in filter(lambda b: b.completed, job.build_infos.values()):
         if meets_constraints(build, params, time_constraints, path_hashes):
             log().info("found matching finished build: %s (%s)", build.number, build.url)
             return build
+    log().info("No matching builds found via the Jenkins API")
 
+    log().info("Check for matching non finished builds")
     # Look for still unfinished builds
     for build in filter(lambda b: not b.completed, job.build_infos.values()):
         if meets_constraints(build, params, time_constraints, path_hashes):
             log().info("found matching unfinished build: %s (%s)", build.number, build.url)
             return build
+    log().info("No matching non finished builds found via the Jenkins API")
 
+    log().info("Check for matching queue items via Jenkins API")
     if args and not args.ignore_build_queue:
         if matching_item := await find_matching_queue_item(
             jenkins_client=jenkins_client,
@@ -1141,9 +1151,11 @@ async def identify_matching_build(
             path_hashes=path_hashes,
             next_check_sleep=next_check_sleep,
         ):
-            log().debug("Found matching queued item %s", matching_item)
+            log().info("Found matching queued item %s", matching_item)
             return await jenkins_client.build_info(job.path, matching_item)
+    log().info("No matching queue items found via Jenkins API")
 
+    log().info("Return None and schedule a new build")
     return None
 
 
