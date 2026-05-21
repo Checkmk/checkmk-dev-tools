@@ -24,7 +24,7 @@ from datetime import datetime
 from itertools import chain
 from pathlib import Path
 from subprocess import check_output
-from typing import Any, List, Literal, cast
+from typing import Any, List, Literal, TypedDict, cast
 
 import requests
 from influxdb_client import InfluxDBClient  # type: ignore[attr-defined]
@@ -56,6 +56,12 @@ from .version import __version__
 
 PathHashes = Mapping[str, str]
 shared_build_info: asyncio.Queue[str] = asyncio.Queue(maxsize=1)
+
+
+class FetchResult(TypedDict):
+    result: None | JobResult
+    artifacts: list[str]
+
 MAX_RETRY_ATTEMPTS = 3
 
 
@@ -311,7 +317,7 @@ def download_artifacts(
     total_download_timeout: int = 240,
     no_remove_others: bool = False,
     no_raise: bool = False,
-) -> tuple[Sequence[str | None], Sequence[str | None]]:
+) -> tuple[Sequence[str], Sequence[str]]:
     """Downloads all artifacts listed for given job/build to @out_dir"""
     # pylint: disable=protected-access
     # pylint: disable=too-many-locals
@@ -733,6 +739,7 @@ async def _fn_request_build(args: Args) -> None:
                 path_hashes=compose_path_hashes(args.base_dir, args.dependency_paths),
                 time_constraints=args.time_constraints,
                 next_check_sleep=args.poll_queue_sleep,
+                ignore_build_queue=args.ignore_build_queue,
                 args=args,
             )
         ):
@@ -901,54 +908,72 @@ def query_matching_builds(
         return []
 
 
-async def _fn_fetch(args: Args) -> None:
-    """Entry point for fetching (request and download combined) artifacts"""
-    out_dir = compose_out_dir(args.base_dir, args.out_dir)
-    path_hashes = compose_path_hashes(args.base_dir, args.dependency_paths)
+async def fetch_artifacts(
+    job: str,
+    params: None | JobParams = None,
+    *,
+    out_dir: Path = Path("out"),
+    base_dir: Path = Path("."),
+    params_no_check: None | JobParams = None,
+    dependency_paths: None | Sequence[str] = None,
+    time_constraints: None | str = None,
+    force_new_build: bool = False,
+    omit_new_build: bool = False,
+    download: bool = True,
+    no_remove_others: bool = False,
+    no_raise: bool = False,
+    poll_queue_sleep: int = 30,
+    poll_sleep: int = 60,
+    timeout: int = 120,
+    total_download_timeout: int = 240,
+    credentials: None | Mapping[str, str] = None,
+    credentials_file: str = "~/.config/jenkins_jobs/jenkins_jobs.ini",
+) -> FetchResult:
+    """Find or trigger a matching build, wait for it, download artifacts, return result dict."""
+    resolved_out_dir = compose_out_dir(base_dir, out_dir)
+    path_hashes = compose_path_hashes(base_dir, dependency_paths or [])
     async with AugmentedJenkinsClient(
-        **extract_credentials(args.credentials), timeout=args.timeout
+        **extract_credentials(credentials, credentials_file=credentials_file), timeout=timeout
     ) as jenkins_client:
-        if not (job := await jenkins_client.job_info(args.job)).type == "WorkflowJob":
-            raise Fatal(f"{args.job} is not a WorkflowJob")
-        # In case we force a new build anyway we don't have to look for an existing one
+        if not (job_info := await jenkins_client.job_info(job)).type == "WorkflowJob":
+            raise Fatal(f"{job} is not a WorkflowJob")
         matching_build = (
             None
-            if args.force_new_build
+            if force_new_build
             else await identify_matching_build(
-                job,
+                job_info,
                 jenkins_client=jenkins_client,
-                params=flatten(args.params),
-                path_hashes=compose_path_hashes(args.base_dir, args.dependency_paths),
-                time_constraints=args.time_constraints,
-                next_check_sleep=args.poll_queue_sleep,
-                args=args,
+                params=params,
+                path_hashes=path_hashes,
+                time_constraints=time_constraints,
+                next_check_sleep=poll_queue_sleep,
             )
         )
-        if args.omit_new_build and not matching_build:
-            raise Fatal(f"No matching build found for job '{job.name}' but new builds are omitted.")
-
+        if omit_new_build and not matching_build:
+            raise Fatal(
+                f"No matching build found for job '{job_info.name}' but new builds are omitted."
+            )
         build_candidate = matching_build or await trigger_build(
             jenkins_client=jenkins_client,
-            job=job,
+            job=job_info,
             params=compose_build_params(
-                params=flatten(args.params),
-                params_no_check=flatten(args.params_no_check),
-                path_hashes=compose_path_hashes(args.base_dir, args.dependency_paths),
+                params=params,
+                params_no_check=params_no_check,
+                path_hashes=path_hashes,
             ),
-            next_check_sleep=args.poll_queue_sleep,
+            next_check_sleep=poll_queue_sleep,
         )
-
         for key, value in build_candidate.__dict__.items():
             log().debug("  %s: %s", key, value)
-
         completed_build = await await_build(
-            job.path,
+            job_info.path,
             build_candidate.number,
             jenkins_client=jenkins_client,
             check_result=True,
             path_hashes=path_hashes,
-            next_check_sleep=args.poll_sleep,
-            no_raise=args.no_raise,
+            next_check_sleep=poll_sleep,
+            no_raise=no_raise,
+            download=download,
         )
         downloaded_artifacts = (
             list(
@@ -956,25 +981,44 @@ async def _fn_fetch(args: Args) -> None:
                     *download_artifacts(
                         jenkins_client.client,
                         completed_build,
-                        out_dir,
-                        args.total_download_timeout,
-                        args.no_remove_others,
-                        args.no_raise,
+                        resolved_out_dir,
+                        total_download_timeout,
+                        no_remove_others,
+                        no_raise,
                     )
                 )
             )
-            if args.download
+            if download
             else []
         )
+        return {"result": completed_build.result, "artifacts": downloaded_artifacts}
 
-        print(
-            json.dumps(
-                {
-                    "result": completed_build.result,
-                    "artifacts": downloaded_artifacts,
-                }
+
+async def _fn_fetch(args: Args) -> None:
+    """Entry point for fetching (request and download combined) artifacts"""
+    print(
+        json.dumps(
+            await fetch_artifacts(
+                job=args.job,
+                params=flatten(args.params),
+                out_dir=args.out_dir,
+                base_dir=args.base_dir,
+                params_no_check=flatten(args.params_no_check),
+                dependency_paths=args.dependency_paths,
+                time_constraints=args.time_constraints,
+                force_new_build=args.force_new_build,
+                omit_new_build=args.omit_new_build,
+                download=args.download,
+                no_remove_others=args.no_remove_others,
+                no_raise=args.no_raise,
+                poll_queue_sleep=args.poll_queue_sleep,
+                poll_sleep=args.poll_sleep,
+                timeout=args.timeout,
+                total_download_timeout=args.total_download_timeout,
+                credentials=args.credentials,
             )
         )
+    )
 
 
 async def identify_matching_build(
@@ -985,6 +1029,7 @@ async def identify_matching_build(
     path_hashes: PathHashes,
     time_constraints: None | str,
     next_check_sleep: int = 30,
+    ignore_build_queue: bool = False,
     args: None | Args = None,
 ) -> None | Build:
     """Find an existing build (finished, still running or queued) which matches our
@@ -1102,7 +1147,7 @@ async def identify_matching_build(
         log().info("No matching builds found in the InfluxDB")
 
         log().info("Check for matching queue items via Jenkins API")
-        if hasattr(args, "ignore_build_queue") and not args.ignore_build_queue:
+        if not ignore_build_queue:
             if matching_item := await find_matching_queue_item(
                 jenkins_client=jenkins_client,
                 job=job,
@@ -1143,7 +1188,7 @@ async def identify_matching_build(
     log().info("No matching non finished builds found via the Jenkins API")
 
     log().info("Check for matching queue items via Jenkins API")
-    if args and not args.ignore_build_queue:
+    if not ignore_build_queue:
         if matching_item := await find_matching_queue_item(
             jenkins_client=jenkins_client,
             job=job,
