@@ -24,7 +24,7 @@ from datetime import datetime
 from itertools import chain
 from pathlib import Path
 from subprocess import check_output
-from typing import Any, List, Literal, TypedDict, cast
+from typing import Any, List, Literal, Set, TypedDict, cast
 
 import requests
 from influxdb_client import InfluxDBClient  # type: ignore[attr-defined]
@@ -322,8 +322,6 @@ def download_artifacts(
     # pylint: disable=protected-access
     # pylint: disable=too-many-locals
 
-    downloaded_artifacts, skipped_artifacts = [], []
-
     # https://bugs.launchpad.net/python-jenkins/+bug/1973243
     # https://bugs.launchpad.net/python-jenkins/+bug/2018576
 
@@ -363,6 +361,40 @@ def download_artifacts(
     existing_files = set(
         p.relative_to(out_dir).as_posix() for p in out_dir.glob("**/*") if p.is_file()
     )
+
+    downloaded_artifacts, skipped_artifacts, existing_files = _download_individual_artifacts(
+        client=client,
+        build=build,
+        existing_files=existing_files,
+        artifact_hashes=artifact_hashes,
+        out_dir=out_dir,
+        total_download_timeout=total_download_timeout,
+    )
+
+    if not no_remove_others:
+        for path in existing_files - set(downloaded_artifacts) - set(skipped_artifacts):
+            log().debug("Remove superfluous file %s", path)
+            with suppress(FileNotFoundError):
+                (out_dir / path).unlink()
+    log().info(
+        "%d artifacts available in '%s' (%d skipped, because they were up to date locally)",
+        len(downloaded_artifacts) + len(skipped_artifacts),
+        out_dir,
+        len(skipped_artifacts),
+    )
+
+    return downloaded_artifacts, skipped_artifacts
+
+
+def _download_individual_artifacts(
+    client: Jenkins,
+    build: Build,
+    existing_files: Set[str],
+    artifact_hashes: Mapping[str, str],
+    out_dir: Path,
+    total_download_timeout: int = 240,
+) -> tuple[Sequence[str], Sequence[str], Set[str]]:
+    downloaded_artifacts, skipped_artifacts = [], []
 
     for artifact in build.artifacts:
         existing_files -= {artifact}
@@ -418,20 +450,7 @@ def download_artifacts(
                     "download_artifacts() caught %r (%s retries left)", exc, attempts_left
                 )
 
-    if not no_remove_others:
-        for path in existing_files - set(downloaded_artifacts) - set(skipped_artifacts):
-            log().debug("Remove superfluous file %s", path)
-            with suppress(FileNotFoundError):
-                (out_dir / path).unlink()
-    log().info(
-        "%d artifacts available in '%s' (%d skipped, because they were up to date locally)",
-        len(downloaded_artifacts) + len(skipped_artifacts),
-        out_dir,
-        len(skipped_artifacts),
-    )
-
-    return downloaded_artifacts, skipped_artifacts
-
+    return downloaded_artifacts, skipped_artifacts, existing_files
 
 def path_hashes_match(actual: PathHashes, required: PathHashes) -> bool:
     """Returns True if two given path hash mappings are semantically equal, i.e. at least one hash
