@@ -416,41 +416,62 @@ def _download_individual_artifacts(
                 fp_hash,
             )
 
-        for attempts_left in reversed(range(MAX_RETRY_ATTEMPTS + 1)):
-            time_start = time.time()
-            try:
-                with client._session.get(f"{build.url}artifact/{artifact}", stream=True) as reply:
-                    log().debug("download: %s", artifact)
-                    reply.raise_for_status()
-                    artifact_filename.parent.mkdir(parents=True, exist_ok=True)
-                    current_dl_duration = 0.0
-                    with open(artifact_filename, "wb") as out_file:
-                        for chunk in reply.iter_content(chunk_size=8192):
-                            if (
-                                current_dl_duration := (time.time() - time_start)
-                            ) > total_download_timeout:
-                                raise TimeoutError(
-                                    f"Downloading of {reply.url} took longer than {total_download_timeout}s"
-                                )
-                            if chunk:  # Filter out keep-alive chunks
-                                out_file.write(chunk)
-                    log().debug(
-                        "download: %s - successful (took %.2fs)", artifact, current_dl_duration
-                    )
-                    downloaded_artifacts.append(artifact)
-                break
-            except (
-                requests.exceptions.ChunkedEncodingError,
-                requests.exceptions.ConnectionError,
-                TimeoutError,
-            ) as exc:
-                if not attempts_left:
-                    raise
-                log().warning(
-                    "download_artifacts() caught %r (%s retries left)", exc, attempts_left
-                )
+        downloaded_artifacts.append(
+            _download_single_file(
+                client=client,
+                build=build,
+                artifact=artifact,
+                artifact_filename=artifact_filename,
+                total_download_timeout=total_download_timeout,
+            )
+        )
 
     return downloaded_artifacts, skipped_artifacts, existing_files
+
+def _download_single_file(
+    client: Jenkins,
+    build: Build,
+    artifact: str,
+    artifact_filename: Path,
+    total_download_timeout: int = 240,
+) -> str:
+    downloaded_artifact: str = ""
+
+    for attempts_left in reversed(range(MAX_RETRY_ATTEMPTS + 1)):
+        time_start = time.time()
+        try:
+            with client._session.get(f"{build.url}artifact/{artifact}", stream=True) as reply:
+                log().debug("download: %s", artifact)
+                reply.raise_for_status()
+                artifact_filename.parent.mkdir(parents=True, exist_ok=True)
+                current_dl_duration = 0.0
+                with open(artifact_filename, "wb") as out_file:
+                    for chunk in reply.iter_content(chunk_size=8192):
+                        if (
+                            current_dl_duration := (time.time() - time_start)
+                        ) > total_download_timeout:
+                            raise TimeoutError(
+                                f"Downloading of {reply.url} took longer than {total_download_timeout}s"
+                            )
+                        if chunk:  # Filter out keep-alive chunks
+                            out_file.write(chunk)
+                log().debug(
+                    "download: %s - successful (took %.2fs)", artifact, current_dl_duration
+                )
+                downloaded_artifact = artifact
+            break
+        except (
+            requests.exceptions.ChunkedEncodingError,
+            requests.exceptions.ConnectionError,
+            TimeoutError,
+        ) as exc:
+            if not attempts_left:
+                raise
+            log().warning(
+                "download_artifacts() caught %r (%s retries left)", exc, attempts_left
+            )
+
+    return downloaded_artifact
 
 def path_hashes_match(actual: PathHashes, required: PathHashes) -> bool:
     """Returns True if two given path hash mappings are semantically equal, i.e. at least one hash
