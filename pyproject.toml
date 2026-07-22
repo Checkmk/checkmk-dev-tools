@@ -9,7 +9,7 @@ authors = [
     "Timotheus Bachinger <timotheus.bachinger@checkmk.com>",
 ]
 readme = "README.md"
-packages = [{ include = "cmk_dev/**/*.py" }]
+packages = [{ include = "cmk_dev/**/*.py" }, { include = "cmk_dev/py.typed" }]
 exclude = ["cmk_dev/out"]
 
 [tool.poetry.urls]
