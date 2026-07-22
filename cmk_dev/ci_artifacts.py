@@ -14,8 +14,10 @@ import asyncio
 import json
 import logging
 import os
+import shutil
 import sys
 import time
+import zipfile
 from argparse import ArgumentParser
 from argparse import Namespace as Args
 from collections.abc import Mapping, MutableMapping, Sequence
@@ -63,6 +65,7 @@ class FetchResult(TypedDict):
     artifacts: list[str]
 
 MAX_RETRY_ATTEMPTS = 3
+MAX_SINGLE_FILE_DOWNLOADS = 10  # max number of single files to be downloaded before using archive.zip + decompression
 
 
 def parse_args() -> Args:
@@ -362,14 +365,32 @@ def download_artifacts(
         p.relative_to(out_dir).as_posix() for p in out_dir.glob("**/*") if p.is_file()
     )
 
-    downloaded_artifacts, skipped_artifacts, existing_files = _download_individual_artifacts(
-        client=client,
-        build=build,
-        existing_files=existing_files,
-        artifact_hashes=artifact_hashes,
-        out_dir=out_dir,
-        total_download_timeout=total_download_timeout,
-    )
+    if len(artifact_hashes) > MAX_SINGLE_FILE_DOWNLOADS:
+        # there is no hash for the archive available, thereby
+        skipped_artifacts: List[str] = []
+        downloaded_artifacts: List[str] = []
+        downloaded_artifact = _download_compressed_artifacs(
+            client=client,
+            build=build,
+            existing_files=existing_files,
+            artifact_hashes=artifact_hashes,
+            out_dir=out_dir,
+            total_download_timeout=total_download_timeout,
+        )
+        downloaded_artifacts.append(downloaded_artifact)
+        downloaded_artifacts += list(_decompress_artifacts(
+            artifact=out_dir / downloaded_artifact,
+            out_dir=out_dir,
+        ))
+    else:
+        downloaded_artifacts, skipped_artifacts, existing_files = _download_individual_artifacts(
+            client=client,
+            build=build,
+            existing_files=existing_files,
+            artifact_hashes=artifact_hashes,
+            out_dir=out_dir,
+            total_download_timeout=total_download_timeout,
+        )
 
     if not no_remove_others:
         for path in existing_files - set(downloaded_artifacts) - set(skipped_artifacts):
@@ -385,6 +406,48 @@ def download_artifacts(
 
     return downloaded_artifacts, skipped_artifacts
 
+def _download_compressed_artifacs(
+    client: Jenkins,
+    build: Build,
+    existing_files: Set[str],
+    artifact_hashes: Mapping[str, str],
+    out_dir: Path,
+    total_download_timeout: int = 240,
+) -> str:
+
+    # https://ci.lan.tribe29.com/job/checkmk/job/master/job/cv/job/test-gerrit-single-k8s/710903/artifact/*zip*/archive.zip
+    artifact = "archive.zip"
+    artifact_filename = out_dir / artifact
+
+    # ignore the returned value of the function as it would be like "/*zip*/archive.zip"
+    _download_single_file(
+        client=client,
+        build=build,
+        artifact=f"/*zip*/{artifact}",
+        artifact_filename=artifact_filename,
+        total_download_timeout=total_download_timeout,
+    )
+
+    return artifact
+
+def _decompress_artifacts(artifact: Path, out_dir: Path, decompressed_folder_name: str = "archive") -> List[str]:
+    with zipfile.ZipFile(artifact, "r") as zip_ref:
+        zip_ref.extractall(out_dir)
+
+    # The extracted folder is always named "archive"
+    archive_dir = out_dir / decompressed_folder_name
+
+    downloaded_artifacts = []
+
+    # Move all contents of the decompressed archive folder up one level
+    if archive_dir.exists() and archive_dir.is_dir():
+        for item in archive_dir.iterdir():
+            shutil.copytree(str(item), str(out_dir / item.name), dirs_exist_ok=True)
+            downloaded_artifacts += [os.path.relpath(str(f), out_dir) for f in (out_dir / item.name).rglob("*") if f.is_file()]
+
+        shutil.rmtree(archive_dir)
+
+    return downloaded_artifacts
 
 def _download_individual_artifacts(
     client: Jenkins,
@@ -393,7 +456,7 @@ def _download_individual_artifacts(
     artifact_hashes: Mapping[str, str],
     out_dir: Path,
     total_download_timeout: int = 240,
-) -> tuple[Sequence[str], Sequence[str], Set[str]]:
+) -> tuple[List[str], List[str], Set[str]]:
     downloaded_artifacts, skipped_artifacts = [], []
 
     for artifact in build.artifacts:
