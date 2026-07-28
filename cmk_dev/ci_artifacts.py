@@ -441,10 +441,14 @@ def _decompress_artifacts(artifact: Path, out_dir: Path, decompressed_folder_nam
     # Move all contents of the decompressed archive folder up one level
     if archive_dir.exists() and archive_dir.is_dir():
         for item in archive_dir.iterdir():
-            shutil.copytree(str(item), str(out_dir / item.name), dirs_exist_ok=True)
+            if item.is_dir():
+                shutil.copytree(str(item), str(out_dir / item.name), dirs_exist_ok=True)
+            else:
+                shutil.copy(str(item), str(out_dir / item.name))
             downloaded_artifacts += [str(f.relative_to(out_dir)) for f in (out_dir / item.name).rglob("*") if f.is_file()]
 
         shutil.rmtree(archive_dir)
+        os.remove(artifact)
 
     return downloaded_artifacts
 
