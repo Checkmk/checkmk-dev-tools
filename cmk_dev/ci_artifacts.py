@@ -368,7 +368,7 @@ def download_artifacts(
     skipped_artifacts: List[str] = []
     downloaded_artifacts: List[str] = []
     if len(artifact_hashes) > MAX_SINGLE_FILE_DOWNLOADS:
-        downloaded_artifact = _download_compressed_artifacs(
+        downloaded_artifact = _download_compressed_artifacts(
             client=client,
             build=build,
             out_dir=out_dir,
@@ -403,7 +403,7 @@ def download_artifacts(
 
     return downloaded_artifacts, skipped_artifacts
 
-def _download_compressed_artifacs(
+def _download_compressed_artifacts(
     client: Jenkins,
     build: Build,
     out_dir: Path,
