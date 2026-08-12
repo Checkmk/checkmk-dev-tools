@@ -371,8 +371,6 @@ def download_artifacts(
         downloaded_artifact = _download_compressed_artifacs(
             client=client,
             build=build,
-            existing_files=existing_files,
-            artifact_hashes=artifact_hashes,
             out_dir=out_dir,
             total_download_timeout=total_download_timeout,
         )
@@ -408,8 +406,6 @@ def download_artifacts(
 def _download_compressed_artifacs(
     client: Jenkins,
     build: Build,
-    existing_files: Set[str],
-    artifact_hashes: Mapping[str, str],
     out_dir: Path,
     total_download_timeout: int = 240,
 ) -> str:
