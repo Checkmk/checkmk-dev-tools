@@ -26,6 +26,7 @@ from datetime import datetime
 from itertools import chain
 from pathlib import Path
 from subprocess import check_output
+from tempfile import TemporaryDirectory
 from typing import Any, List, Literal, Set, TypedDict, cast
 
 import requests
@@ -66,6 +67,7 @@ class FetchResult(TypedDict):
 
 MAX_RETRY_ATTEMPTS = 3
 MAX_SINGLE_FILE_DOWNLOADS = 10  # max number of single files to be downloaded before using archive.zip + decompression
+TEMP_DIR_PREFIX = ".ci-artifacts-"  # prefix of per-invocation temporary directories inside out_dir
 
 
 def parse_args() -> Args:
@@ -362,23 +364,28 @@ def download_artifacts(
         raise Fatal(f"no (fingerprinted) artifacts found at {build.url}")
 
     existing_files = set(
-        p.relative_to(out_dir).as_posix() for p in out_dir.glob("**/*") if p.is_file()
+        p.relative_to(out_dir).as_posix()
+        for p in out_dir.glob("**/*")
+        if p.is_file() and not _is_temporary(p, out_dir)
     )
 
     skipped_artifacts: List[str] = []
     downloaded_artifacts: List[str] = []
     if len(artifact_hashes) > MAX_SINGLE_FILE_DOWNLOADS:
-        downloaded_artifact = _download_compressed_artifacts(
-            client=client,
-            build=build,
-            out_dir=out_dir,
-            total_download_timeout=total_download_timeout,
-        )
-        downloaded_artifacts.append(downloaded_artifact)
-        downloaded_artifacts.extend(_decompress_artifacts(
-            artifact=out_dir / downloaded_artifact,
-            out_dir=out_dir,
-        ))
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        # Several instances might download different builds into the same @out_dir concurrently
+        # (e.g. parallel Jenkins stages sharing one workspace). With fixed names those instances
+        # would write to the same archive and extraction directory, resulting in corrupted
+        # archives and lost artifacts, so keep both unique per invocation.
+        with TemporaryDirectory(dir=out_dir, prefix=TEMP_DIR_PREFIX) as tmp_dir:
+            archive = _download_compressed_artifacts(
+                client=client,
+                build=build,
+                out_dir=Path(tmp_dir),
+                total_download_timeout=total_download_timeout,
+            )
+            downloaded_artifacts = _decompress_artifacts(artifact=archive, out_dir=out_dir)
     else:
         downloaded_artifacts, skipped_artifacts, existing_files = _download_individual_artifacts(
             client=client,
@@ -403,50 +410,68 @@ def download_artifacts(
 
     return downloaded_artifacts, skipped_artifacts
 
+
+def _is_temporary(path: Path, out_dir: Path) -> bool:
+    """Returns True if @path is located inside a temporary download directory, which might
+    belong to a concurrently running instance and thus must not be touched"""
+    return any(part.startswith(TEMP_DIR_PREFIX) for part in path.relative_to(out_dir).parts)
+
+
 def _download_compressed_artifacts(
     client: Jenkins,
     build: Build,
     out_dir: Path,
     total_download_timeout: int = 240,
-) -> str:
-
+) -> Path:
+    """Downloads all artifacts of @build as one compressed archive into @out_dir and returns the
+    path of that archive"""
     # https://ci.lan.tribe29.com/job/checkmk/job/master/job/cv/job/test-gerrit-single-k8s/710903/artifact/*zip*/archive.zip
     artifact = "archive.zip"
     artifact_filename = out_dir / artifact
 
-    # ignore the returned value of the function as it would be like "/*zip*/archive.zip"
+    # ignore the returned value of the function as it would be like "*zip*/archive.zip"
     _download_single_file(
         client=client,
         build=build,
-        artifact=f"/*zip*/{artifact}",
+        artifact=f"*zip*/{artifact}",
         artifact_filename=artifact_filename,
         total_download_timeout=total_download_timeout,
     )
 
-    return artifact
+    return artifact_filename
 
-def _decompress_artifacts(artifact: Path, out_dir: Path, decompressed_folder_name: str = "archive") -> List[str]:
-    with zipfile.ZipFile(artifact, "r") as zip_ref:
-        zip_ref.extractall(out_dir)
 
-    # The extracted folder is always named "archive"
-    archive_dir = out_dir / decompressed_folder_name
+def _decompress_artifacts(
+    artifact: Path, out_dir: Path, decompressed_folder_name: str = "archive"
+) -> List[str]:
+    """Extracts the compressed @artifact into @out_dir, keeping files of other builds, and
+    returns the paths of all extracted files relative to @out_dir"""
+    # the archive is extracted next to itself into a directory unique per invocation, which gets
+    # removed afterwards in any case
+    with TemporaryDirectory(dir=artifact.parent, prefix=TEMP_DIR_PREFIX) as tmp_dir:
+        extraction_dir = Path(tmp_dir)
+        with zipfile.ZipFile(artifact, "r") as zip_ref:
+            zip_ref.extractall(extraction_dir)
 
-    downloaded_artifacts = []
-
-    # Move all contents of the decompressed archive folder up one level
-    if archive_dir.exists() and archive_dir.is_dir():
-        for item in archive_dir.iterdir():
-            if item.is_dir():
-                shutil.copytree(str(item), str(out_dir / item.name), dirs_exist_ok=True)
-            else:
-                shutil.copy(str(item), str(out_dir / item.name))
-            downloaded_artifacts += [str(f.relative_to(out_dir)) for f in (out_dir / item.name).rglob("*") if f.is_file()]
-
-        shutil.rmtree(archive_dir)
+        # don't keep the archive and its extracted content around at the same time
         os.remove(artifact)
 
-    return downloaded_artifacts
+        # Jenkins wraps all artifacts into a top level folder always named "archive", which might
+        # be missing for archives created differently
+        content_dir = extraction_dir / decompressed_folder_name
+        if not content_dir.is_dir():
+            content_dir = extraction_dir
+
+        decompressed_artifacts = [
+            path.relative_to(content_dir).as_posix()
+            for path in content_dir.rglob("*")
+            if path.is_file()
+        ]
+
+        # Move all contents of the decompressed archive up one level
+        shutil.copytree(content_dir, out_dir, dirs_exist_ok=True)
+
+    return decompressed_artifacts
 
 def _download_individual_artifacts(
     client: Jenkins,
