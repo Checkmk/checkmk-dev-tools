@@ -241,7 +241,9 @@ class Build(SimpleBuild):
         """Convenience.."""
         # see core/src/main/java/hudson/model/Run.java#L543
         # @ https://github.com/jenkinsci/jenkins
-        return not self.inProgress
+        # A pipeline build which left the queue but did not start executing yet reports
+        # inProgress=false while it has no result, so it must not count as completed.
+        return not self.inProgress and self.result is not None
 
 
 class SimpleJob(JobTreeElement):
