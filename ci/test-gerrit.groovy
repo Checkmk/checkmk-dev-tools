@@ -51,7 +51,7 @@ def main() {
                     poetry run binreplace --help
                     poetry run check-rpath --help
                     poetry run ci-artifacts --help
-                    poetry run cmk-dev --help
+                    poetry run cmk-devops --help
                     poetry run cpumon --help
                     poetry run job-resource-usage --help
                     poetry run last-access --help
