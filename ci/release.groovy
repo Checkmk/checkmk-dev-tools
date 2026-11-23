@@ -6,6 +6,7 @@ def main() {
     def image_name = "python-curl-poetry";
     def dockerfile = "ci/Dockerfile";
     def docker_args = "${mount_reference_repo_dir}";
+    def docker_image = null;
     def release_new_version_flag = false;
 
     currentBuild.description += (
@@ -14,7 +15,14 @@ def main() {
         |""".stripMargin());
 
     dir("${checkout_dir}") {
-        def docker_image = docker.build(image_name, "-f ${dockerfile} .");
+        stage("Cleanup") {
+            sh("rm -rf .venv");
+        }
+
+        stage("Build the Docker image") {
+            docker_image = docker.build(image_name, "--no-cache -f ${dockerfile} .");
+        }
+
         docker_image.inside(docker_args) {
             withCredentials([
                 usernamePassword(
@@ -29,6 +37,7 @@ def main() {
             ]) {
                 stage('Pre-commit hooks') {
                     sh(label: "Pre-commit and run hooks", script: """
+                        poetry --version
                         dev/run-in-venv \
                             pre-commit run --all-files
                     """);
@@ -110,8 +119,6 @@ def main() {
 
             stage("Build package") {
                 sh(label: "build package", script: """
-                    # see comment in pyproject.toml
-                    poetry self add "poetry-dynamic-versioning[plugin]"
                     rm -rf dist/*
                     poetry build
                     poetry run twine check dist/*

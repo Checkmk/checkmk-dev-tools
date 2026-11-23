@@ -13,7 +13,7 @@ RUN groupadd -g 1000 jenkins \
 USER jenkins
 
 # install latest available poetry
-RUN curl -sSL https://install.python-poetry.org | POETRY_VERSION=1.8.5 python3 -
+RUN curl -sSL https://install.python-poetry.org | POETRY_VERSION=2.2.1 python3 -
 
 # update the PATH variable with the poetry installation directory
 ENV PATH="${PATH}:/home/jenkins/.local/bin"

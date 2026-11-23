@@ -59,4 +59,5 @@ then
     echo "${OS_HASH} ${LOCK_FILE_HASH}" > "$(${VENV_CMD})/${LOCK_AND_OS_HASH_FILE}"
 fi
 
+poetry --version
 poetry run "$@"
