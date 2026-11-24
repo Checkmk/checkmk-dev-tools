@@ -1,7 +1,9 @@
 /.container_home_dir
 /untracked
+/download
 /dist
 /out
+/tmp_artifacts
 /.venv
 .~*
 *~

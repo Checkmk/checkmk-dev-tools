@@ -21,6 +21,7 @@ activity-from-fs = 'cmk_dev.activity_from_fs:main'
 binreplace = 'cmk_dev.binreplace:main'
 check-rpath = 'cmk_dev.check_rpath:main'
 ci-artifacts = 'cmk_dev.ci_artifacts:main'
+ra = 'cmk_dev.remote_artifacts:main'
 cmk-devops = 'cmk_dev.cli:main'
 cpumon = 'cmk_dev.cpumon:main'
 decent-output = 'cmk_dev.decent_output:main'
@@ -32,8 +33,10 @@ pycinfo = 'cmk_dev.pycinfo:main'
 lockable-resources = 'cmk_dev.lockable_resources:main'
 
 [tool.poetry.dependencies]
-python = "^3.10.4"         # currently lowest supported Python version (CI Build Nodes)
+python = "^3.10.4,<3.16"   # currently lowest supported Python version (CI Build Nodes)
 python-jenkins = "~=1.8.3" # needed for ci-artifacts
+requests = "^2.34.2"       # needed for remote-artifacts
+pulp-cli = "^0.41.1"
 pydantic = "^2"            # jenkins_utils/*, docker_shaper/*
 rich = "*"                 # activity_from_fs.py, docker_shaper/*
 influxdb-client = "^1"     # ci_artifacs.py with InfluxDB
