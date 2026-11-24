@@ -23,7 +23,7 @@ def main() {
 
     dir("${checkout_dir}") {
         stage("Cleanup") {
-            sh("rm -rf .venv .poetry");
+            sh("rm -rf .venv .poetry .mypy*");
         }
 
         stage("Build the Docker image") {

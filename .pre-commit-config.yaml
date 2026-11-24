@@ -30,7 +30,8 @@ repos:
             name: Check Python Type Hinting
             language: system
             entry: poetry
-            args: ["run", "mypy", "--config-file", "pyproject.toml"]
+            args: ["run", "mypy", "--config-file", "pyproject.toml", "--show-traceback", "--no-sqlite-cache", "--no-incremental"]
+            require_serial: true
             types: [file, python]
             exclude: (?x)^(
                 \.venv|
